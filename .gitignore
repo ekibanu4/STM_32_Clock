@@ -1,0 +1,53 @@
+# Build directories
+build/
+build-*/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+
+# Firmware/build outputs
+*.elf
+*.hex
+*.bin
+*.map
+*.list
+*.lst
+*.su
+*.o
+*.obj
+*.a
+*.d
+
+# CMake/Ninja generated files
+*.ninja
+.ninja_*
+install_manifest.txt
+
+# STM32CubeIDE / Eclipse local metadata
+.metadata/
+.cproject
+.launches/
+
+# Keep .settings if generated STM32 settings are useful for this project.
+!.settings/
+
+# VS Code local/editor state
+.vscode/.browse.c_cpp.db*
+.vscode/ipch/
+.vscode/.ropeproject/
+
+# clangd cache
+.cache/
+.clangd-index/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+*~
+*.swp
+*.swo
+
+# Logs
+*.log
