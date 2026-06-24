@@ -1,5 +1,5 @@
 #include "dht11.h"
-#include "utils.h"
+#include "board_config.h"
 
 #define DHT11_CPU_CLOCK_HZ 16000000UL
 #define DHT11_CYCLES_PER_US (DHT11_CPU_CLOCK_HZ / 1000000UL)
@@ -18,6 +18,7 @@ volatile uint8_t dhtDebugStatus = DHT11_STATUS_IDLE;
 
 static uint32_t lastReadCycles = 0U;
 static uint8_t lastResult = 0U;
+static DHT11_Reading_t lastReading = {0U, 0U, 0U};
 
 static void DWT_Init(void) {
   CORE_DEBUG_DEMCR |= CORE_DEBUG_DEMCR_TRCENA;
@@ -74,6 +75,7 @@ uint8_t DHT11_Read(DHT11_Reading_t *reading) {
   if (((currentCycles - lastReadCycles) <
        (DHT11_MIN_INTERVAL_US * DHT11_CYCLES_PER_US)) &&
       (lastResult != 0U)) {
+    *reading = lastReading;
     return lastResult;
   }
   lastReadCycles = currentCycles;
@@ -152,6 +154,7 @@ uint8_t DHT11_Read(DHT11_Reading_t *reading) {
   reading->humidity = data[0];
   reading->temperature = data[2];
   reading->isValid = 1U;
+  lastReading = *reading;
   lastResult = 1U;
   dhtDebugStatus = DHT11_STATUS_OK;
   return 1U;

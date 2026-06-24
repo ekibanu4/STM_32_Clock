@@ -41,15 +41,33 @@ set(cpu_PARAMS
 )
 
 # Sources
+set(CLOCK_BOARD "f407_disc1" CACHE STRING "Target board package from Src/boards")
+set(CLOCK_BOARD_DIR ${CMAKE_CURRENT_SOURCE_DIR}/Src/boards/${CLOCK_BOARD})
+set(CLOCK_BOARD_CMAKE ${CLOCK_BOARD_DIR}/board.cmake)
+
+if(NOT EXISTS ${CLOCK_BOARD_CMAKE})
+    message(FATAL_ERROR "Unknown CLOCK_BOARD='${CLOCK_BOARD}'. Expected ${CLOCK_BOARD_CMAKE}")
+endif()
+
 set(sources_SRCS
 	${CMAKE_CURRENT_SOURCE_DIR}/Src/main.c
-	${CMAKE_CURRENT_SOURCE_DIR}/Src/dht11.c
+	${CMAKE_CURRENT_SOURCE_DIR}/Src/drivers/buzzer.c
+	${CMAKE_CURRENT_SOURCE_DIR}/Src/drivers/buttons_decoder.c
+	${CMAKE_CURRENT_SOURCE_DIR}/Src/drivers/dht11.c
+	${CMAKE_CURRENT_SOURCE_DIR}/Src/drivers/ds1302.c
+	${CMAKE_CURRENT_SOURCE_DIR}/Src/drivers/light_sensor.c
+	${CMAKE_CURRENT_SOURCE_DIR}/Src/drivers/shift_register.c
 )
 
 # Include directories for all compilers
 set(include_DIRS
 	${CMAKE_CURRENT_SOURCE_DIR}/Inc
+	${CMAKE_CURRENT_SOURCE_DIR}/Src
+	${CMAKE_CURRENT_SOURCE_DIR}/Src/drivers
 )
+
+include(${CLOCK_BOARD_CMAKE})
+message("Clock board: ${CLOCK_BOARD} (${CLOCK_BOARD_NAME})")
 
 # Include directories for each compiler
 set(include_c_DIRS)

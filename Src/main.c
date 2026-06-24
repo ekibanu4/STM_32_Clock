@@ -99,8 +99,7 @@ All Q0-Q7 outputs are enabled with the same brightness through OE dimming.
  */
 
 #include <stdint.h>
-#include "utils.h"
-#include "dht11.h"
+#include "board.h"
 
 typedef enum {
     DISPLAY_TIME = 0,
@@ -155,8 +154,8 @@ typedef struct {
 
 static DisplayMode_t displayMode = DISPLAY_TIME;
 static EditTarget_t editTarget = EDIT_NONE;
-static DateTime_t currentDateTime = {0U, 0U, 12U, 1U, 1U};
-static DHT11_Reading_t currentEnvironment = {0U, 0U, 0U};
+static ClockDateTime_t currentDateTime = {0U, 0U, 12U, 1U, 1U};
+static ClockEnvironment_t currentEnvironment = {0U, 0U, 0U};
 static AlarmSlot_t alarmSlots[ALARM_SLOT_COUNT] = {{0U, 0U, 0U, 0U},
                                                    {0U, 0U, 0U, 0U},
                                                    {0U, 0U, 0U, 0U}};
@@ -204,12 +203,12 @@ static uint8_t DecrementWrap(uint8_t value, uint8_t minimum, uint8_t maximum) {
 }
 
 static void SaveTimeToRtc(void) {
-    DS1302_WriteTime(currentDateTime.hours, currentDateTime.minutes,
+    Board_WriteTime(currentDateTime.hours, currentDateTime.minutes,
                      currentDateTime.seconds);
 }
 
 static void SaveDateToRtc(void) {
-    DS1302_WriteDate(currentDateTime.day, currentDateTime.month);
+    Board_WriteDate(currentDateTime.day, currentDateTime.month);
 }
 
 static uint8_t AlarmSlotFlags(const AlarmSlot_t *slot) {
@@ -235,6 +234,12 @@ static uint8_t AlarmRamChecksum(const uint8_t *data, uint8_t size) {
     return (uint8_t)(checksum ^ ALARM_RAM_CHECKSUM_XOR);
 }
 
+static uint8_t IsAlarmRamImageValid(const uint8_t *ramImage) {
+    return ((ramImage[0U] == ALARM_RAM_SIGNATURE) &&
+            (ramImage[1U] == ALARM_RAM_VERSION) &&
+            (ramImage[11U] == AlarmRamChecksum(ramImage, 11U)));
+}
+
 static void SaveAlarmsToRtcRam(void) {
     uint8_t ramImage[12U] = {0U};
 
@@ -248,9 +253,7 @@ static void SaveAlarmsToRtcRam(void) {
     }
     ramImage[11U] = AlarmRamChecksum(ramImage, 11U);
 
-    for (uint8_t address = 0U; address < sizeof(ramImage); ++address) {
-        DS1302_WriteRamByte(address, ramImage[address]);
-    }
+    Board_WriteAlarmStorage(ramImage, sizeof(ramImage));
 }
 
 static void ClearAlarms(void) {
@@ -265,15 +268,15 @@ static void ClearAlarms(void) {
 static void LoadAlarmsFromRtcRam(void) {
     uint8_t ramImage[12U] = {0U};
 
-    for (uint8_t address = 0U; address < sizeof(ramImage); ++address) {
-        ramImage[address] = DS1302_ReadRamByte(address);
+    for (uint8_t attempt = 0U; attempt < 3U; ++attempt) {
+        Board_ReadAlarmStorage(ramImage, sizeof(ramImage));
+        if (IsAlarmRamImageValid(ramImage) != 0U) {
+            break;
+        }
     }
 
-    if ((ramImage[0U] != ALARM_RAM_SIGNATURE) ||
-        (ramImage[1U] != ALARM_RAM_VERSION) ||
-        (ramImage[11U] != AlarmRamChecksum(ramImage, 11U))) {
+    if (IsAlarmRamImageValid(ramImage) == 0U) {
         ClearAlarms();
-        SaveAlarmsToRtcRam();
         return;
     }
 
@@ -303,9 +306,19 @@ static uint8_t AnyAlarmEnabled(void) {
     return 0U;
 }
 
+static void ReadEnvironmentSensor(void) {
+    ClockEnvironment_t readEnvironment = currentEnvironment;
+
+    if (Board_ReadEnvironment(&readEnvironment) != 0U) {
+        currentEnvironment = readEnvironment;
+    }
+
+    environmentReadTicks = ENVIRONMENT_READ_TICKS;
+}
+
 static void StopAlarmBuzzer(void) {
     alarmBuzzerTicks = 0U;
-    Buzzer_SetEnabled(0U);
+    Board_SetBuzzer(0U);
 }
 
 static void DisableAllAlarms(void) {
@@ -341,7 +354,7 @@ static void NormalizeDateTime(void) {
 static void HandleModeButton(void) {
     StopAlarmBuzzer();
     editTarget = EDIT_NONE;
-    DS1302_ReadDateTime(&currentDateTime);
+    Board_ReadDateTime(&currentDateTime);
     NormalizeDateTime();
 
     if (displayMode == DISPLAY_TIME) {
@@ -481,30 +494,30 @@ static void HandleOffButton(void) {
     }
 
     editTarget = EDIT_NONE;
-    DS1302_ReadDateTime(&currentDateTime);
+    Board_ReadDateTime(&currentDateTime);
     NormalizeDateTime();
 }
 
-static void HandleButton(ButtonCode_t button) {
+static void HandleButton(ClockButton_t button) {
     userPauseTicks = AUTO_USER_PAUSE_TICKS;
 
     switch (button) {
-    case BUTTON_MODE:
+    case CLOCK_BUTTON_MODE:
         HandleModeButton();
         break;
-    case BUTTON_SET:
+    case CLOCK_BUTTON_SET:
         HandleSetButton();
         break;
-    case BUTTON_UP:
+    case CLOCK_BUTTON_UP:
         HandleUpButton();
         break;
-    case BUTTON_DOWN:
+    case CLOCK_BUTTON_DOWN:
         HandleDownButton();
         break;
-    case BUTTON_OFF:
+    case CLOCK_BUTTON_OFF:
         HandleOffButton();
         break;
-    case BUTTON_NONE:
+    case CLOCK_BUTTON_NONE:
     default:
         break;
     }
@@ -538,7 +551,7 @@ static void UpdateAutoModeCycle(void) {
             editTarget = EDIT_NONE;
             displayMode = DISPLAY_TIME;
             autoModeTicks = 0U;
-            DS1302_ReadDateTime(&currentDateTime);
+            Board_ReadDateTime(&currentDateTime);
             NormalizeDateTime();
         }
         return;
@@ -562,22 +575,22 @@ static uint8_t HoursToBoard1Mask(uint8_t hours) {
     uint8_t mask = 0U;
 
     if ((hours & 32U) != 0U) {
-        mask |= (uint8_t)(1U << BOARD1_HOURS_32_BIT);
+        mask |= (uint8_t)(1U << CLOCK_BOARD1_HOURS_32_BIT);
     }
     if ((hours & 16U) != 0U) {
-        mask |= (uint8_t)(1U << BOARD1_HOURS_16_BIT);
+        mask |= (uint8_t)(1U << CLOCK_BOARD1_HOURS_16_BIT);
     }
     if ((hours & 8U) != 0U) {
-        mask |= (uint8_t)(1U << BOARD1_HOURS_8_BIT);
+        mask |= (uint8_t)(1U << CLOCK_BOARD1_HOURS_8_BIT);
     }
     if ((hours & 4U) != 0U) {
-        mask |= (uint8_t)(1U << BOARD1_HOURS_4_BIT);
+        mask |= (uint8_t)(1U << CLOCK_BOARD1_HOURS_4_BIT);
     }
     if ((hours & 2U) != 0U) {
-        mask |= (uint8_t)(1U << BOARD1_HOURS_2_BIT);
+        mask |= (uint8_t)(1U << CLOCK_BOARD1_HOURS_2_BIT);
     }
     if ((hours & 1U) != 0U) {
-        mask |= (uint8_t)(1U << BOARD1_HOURS_1_BIT);
+        mask |= (uint8_t)(1U << CLOCK_BOARD1_HOURS_1_BIT);
     }
 
     return mask;
@@ -586,22 +599,22 @@ static uint8_t HoursToBoard1Mask(uint8_t hours) {
 static void AddMinutesToDisplay(uint8_t minutes, uint8_t *board1Mask,
                                 uint8_t *board2Mask) {
     if ((minutes & 32U) != 0U) {
-        *board1Mask |= (uint8_t)(1U << BOARD1_MINUTES_32_BIT);
+        *board1Mask |= (uint8_t)(1U << CLOCK_BOARD1_MINUTES_32_BIT);
     }
     if ((minutes & 16U) != 0U) {
-        *board1Mask |= (uint8_t)(1U << BOARD1_MINUTES_16_BIT);
+        *board1Mask |= (uint8_t)(1U << CLOCK_BOARD1_MINUTES_16_BIT);
     }
     if ((minutes & 8U) != 0U) {
-        *board2Mask |= (uint8_t)(1U << BOARD2_MINUTES_8_BIT);
+        *board2Mask |= (uint8_t)(1U << CLOCK_BOARD2_MINUTES_8_BIT);
     }
     if ((minutes & 4U) != 0U) {
-        *board2Mask |= (uint8_t)(1U << BOARD2_MINUTES_4_BIT);
+        *board2Mask |= (uint8_t)(1U << CLOCK_BOARD2_MINUTES_4_BIT);
     }
     if ((minutes & 2U) != 0U) {
-        *board2Mask |= (uint8_t)(1U << BOARD2_MINUTES_2_BIT);
+        *board2Mask |= (uint8_t)(1U << CLOCK_BOARD2_MINUTES_2_BIT);
     }
     if ((minutes & 1U) != 0U) {
-        *board2Mask |= (uint8_t)(1U << BOARD2_MINUTES_1_BIT);
+        *board2Mask |= (uint8_t)(1U << CLOCK_BOARD2_MINUTES_1_BIT);
     }
 }
 
@@ -609,22 +622,22 @@ static void AddHumidityScaleLed(uint8_t ledIndex, uint8_t *board1Mask,
                                 uint8_t *board2Mask) {
     switch (ledIndex) {
     case 0U:
-        *board2Mask |= (uint8_t)(1U << BOARD2_MINUTES_1_BIT);
+        *board2Mask |= (uint8_t)(1U << CLOCK_BOARD2_MINUTES_1_BIT);
         break;
     case 1U:
-        *board2Mask |= (uint8_t)(1U << BOARD2_MINUTES_2_BIT);
+        *board2Mask |= (uint8_t)(1U << CLOCK_BOARD2_MINUTES_2_BIT);
         break;
     case 2U:
-        *board2Mask |= (uint8_t)(1U << BOARD2_MINUTES_4_BIT);
+        *board2Mask |= (uint8_t)(1U << CLOCK_BOARD2_MINUTES_4_BIT);
         break;
     case 3U:
-        *board2Mask |= (uint8_t)(1U << BOARD2_MINUTES_8_BIT);
+        *board2Mask |= (uint8_t)(1U << CLOCK_BOARD2_MINUTES_8_BIT);
         break;
     case 4U:
-        *board1Mask |= (uint8_t)(1U << BOARD1_MINUTES_16_BIT);
+        *board1Mask |= (uint8_t)(1U << CLOCK_BOARD1_MINUTES_16_BIT);
         break;
     case 5U:
-        *board1Mask |= (uint8_t)(1U << BOARD1_MINUTES_32_BIT);
+        *board1Mask |= (uint8_t)(1U << CLOCK_BOARD1_MINUTES_32_BIT);
         break;
     default:
         break;
@@ -650,13 +663,13 @@ static void AddHumidityToEnvironmentDisplay(uint8_t humidity, uint8_t *board1Mas
 
 static uint8_t ModeToBoard2Mask(void) {
     if (displayMode == DISPLAY_TIME) {
-        return (uint8_t)(1U << BOARD2_MODE_HOURS_BIT);
+        return (uint8_t)(1U << CLOCK_BOARD2_MODE_TIME_BIT);
     }
     if (displayMode == DISPLAY_DATE) {
-        return (uint8_t)(1U << BOARD2_MODE_DATE_BIT);
+        return (uint8_t)(1U << CLOCK_BOARD2_MODE_DATE_BIT);
     }
     if (displayMode == DISPLAY_ENVIRONMENT) {
-        return (uint8_t)(1U << BOARD2_MODE_ENVIRONMENT_BIT);
+        return (uint8_t)(1U << CLOCK_BOARD2_MODE_ENVIRONMENT_BIT);
     }
     return 0U;
 }
@@ -664,18 +677,18 @@ static uint8_t ModeToBoard2Mask(void) {
 static uint8_t AlarmSlotLedBit(uint8_t slotIndex) {
     switch (slotIndex) {
     case 0U:
-        return BOARD2_MODE_HOURS_BIT;
+        return CLOCK_BOARD2_MODE_TIME_BIT;
     case 1U:
-        return BOARD2_MODE_DATE_BIT;
+        return CLOCK_BOARD2_MODE_DATE_BIT;
     case 2U:
     default:
-        return BOARD2_MODE_ENVIRONMENT_BIT;
+        return CLOCK_BOARD2_MODE_ENVIRONMENT_BIT;
     }
 }
 
 static void AddAlarmStatusToDisplay(uint8_t *board2Mask) {
     if ((displayMode == DISPLAY_ALARM) || (AnyAlarmEnabled() != 0U)) {
-        *board2Mask |= (uint8_t)(1U << BOARD2_ALARM_SET_BIT);
+        *board2Mask |= (uint8_t)(1U << CLOCK_BOARD2_ALARM_BIT);
     }
 }
 
@@ -763,12 +776,7 @@ static void UpdateEnvironment(void) {
         return;
     }
 
-    DHT11_Reading_t readEnvironment = currentEnvironment;
-    if (DHT11_Read(&readEnvironment) != 0U) {
-        currentEnvironment = readEnvironment;
-    }
-
-    environmentReadTicks = ENVIRONMENT_READ_TICKS;
+    ReadEnvironmentSensor();
 }
 
 static void BuildDisplay(uint8_t blinkOn, uint8_t *board1Mask, uint8_t *board2Mask) {
@@ -857,33 +865,27 @@ static void UpdateBuzzer(void) {
         --alarmBuzzerTicks;
     }
 
-    Buzzer_SetEnabled(buzzerOn);
+    Board_SetBuzzer(buzzerOn);
 }
 
 int main(void)
 {
-    ShiftRegister_Init();
-    ButtonsDecoder_Init();
-    ShiftRegister_OutputEnablePwm_Init(LIGHT_SENSOR_BRIGHTNESS_MAX);
-    DS1302_Init();
-    Buzzer_Init();
-    DHT11_Init();
-    DS1302_StartClock();
-    DS1302_ReadDateTime(&currentDateTime);
+    Board_Init();
+    Board_ReadDateTime(&currentDateTime);
     NormalizeDateTime();
     LoadAlarmsFromRtcRam();
-    (void)DHT11_Read(&currentEnvironment);
+    ReadEnvironmentSensor();
 
-    ButtonCode_t lastButton = BUTTON_NONE;
+    ClockButton_t lastButton = CLOCK_BUTTON_NONE;
     uint32_t offButtonHoldTicks = 0U;
     uint8_t offLongPressHandled = 0U;
     uint32_t loopCounter = 0U;
-    ShiftRegister_WriteBoards(0x00U, 0x00U);
+    Board_WriteDisplay((ClockDisplay_t){0x00U, 0x00U});
 
     /* Loop forever */
     for (;;) {
-        ButtonCode_t pressedButton = ButtonsDecoder_Read();
-        if (pressedButton == BUTTON_OFF) {
+        ClockButton_t pressedButton = Board_ReadButton();
+        if (pressedButton == CLOCK_BUTTON_OFF) {
             if (offButtonHoldTicks < OFF_LONG_PRESS_TICKS) {
                 ++offButtonHoldTicks;
             }
@@ -894,14 +896,14 @@ int main(void)
                 offLongPressHandled = 1U;
             }
         } else {
-            if ((lastButton == BUTTON_OFF) && (offLongPressHandled == 0U)) {
-                HandleButton(BUTTON_OFF);
+            if ((lastButton == CLOCK_BUTTON_OFF) && (offLongPressHandled == 0U)) {
+                HandleButton(CLOCK_BUTTON_OFF);
             }
             offButtonHoldTicks = 0U;
             offLongPressHandled = 0U;
         }
 
-        if ((pressedButton != BUTTON_NONE) && (pressedButton != BUTTON_OFF) &&
+        if ((pressedButton != CLOCK_BUTTON_NONE) && (pressedButton != CLOCK_BUTTON_OFF) &&
             (pressedButton != lastButton)) {
             HandleButton(pressedButton);
         }
@@ -909,23 +911,23 @@ int main(void)
         UpdateAutoModeCycle();
         UpdateEnvironment();
 
-        uint8_t brightness = LightSensor_ReadBrightness();
+        uint8_t brightness = Board_ReadBrightness();
         uint8_t blinkOn = ((loopCounter / 80U) % 2U) == 0U;
         uint8_t board1Mask = 0U;
         uint8_t board2Mask = 0U;
 
         if ((editTarget == EDIT_NONE) && ((loopCounter % 200U) == 0U)) {
-            DS1302_ReadDateTime(&currentDateTime);
+            Board_ReadDateTime(&currentDateTime);
             NormalizeDateTime();
             UpdateAlarmTrigger();
         }
         UpdateBuzzer();
 
-        ShiftRegister_SetBrightness(brightness);
+        Board_SetBrightness(brightness);
         BuildDisplay(blinkOn, &board1Mask, &board2Mask);
-        ShiftRegister_WriteBoards(board1Mask, board2Mask);
+        Board_WriteDisplay((ClockDisplay_t){board1Mask, board2Mask});
 
         ++loopCounter;
-        DelayCycles(20000U);
+        Board_DelayLoop();
     }
 }

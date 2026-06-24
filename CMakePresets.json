@@ -31,10 +31,26 @@
             }
         },
         {
+            "name": "Debug-f407",
+            "inherits": "default",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CLOCK_BOARD": "f407_disc1"
+            }
+        },
+        {
             "name": "Release",
             "inherits": "default",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release"
+            }
+        },
+        {
+            "name": "Release-f407",
+            "inherits": "default",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CLOCK_BOARD": "f407_disc1"
             }
         }
     ],
@@ -44,13 +60,21 @@
             "hidden": true,
             "configurePreset": "default"
         },
-                {
+        {
             "name": "Debug",
             "configurePreset": "Debug"
         },
         {
+            "name": "Debug-f407",
+            "configurePreset": "Debug-f407"
+        },
+        {
             "name": "Release",
             "configurePreset": "Release"
+        },
+        {
+            "name": "Release-f407",
+            "configurePreset": "Release-f407"
         }
     ]
 }

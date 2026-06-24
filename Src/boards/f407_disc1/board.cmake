@@ -1,0 +1,9 @@
+set(CLOCK_BOARD_NAME "STM32F407G-DISC1")
+
+list(APPEND sources_SRCS
+    ${CMAKE_CURRENT_LIST_DIR}/board.c
+)
+
+list(APPEND include_DIRS
+    ${CMAKE_CURRENT_LIST_DIR}
+)
