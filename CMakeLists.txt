@@ -51,6 +51,11 @@ endif()
 
 set(sources_SRCS
 	${CMAKE_CURRENT_SOURCE_DIR}/Src/main.c
+	${CMAKE_CURRENT_SOURCE_DIR}/Src/app/alarm/alarm_manager.c
+	${CMAKE_CURRENT_SOURCE_DIR}/Src/app/display/display_renderer.c
+	${CMAKE_CURRENT_SOURCE_DIR}/Src/app/environment/environment_manager.c
+	${CMAKE_CURRENT_SOURCE_DIR}/Src/app/ui/auto_mode_scheduler.c
+	${CMAKE_CURRENT_SOURCE_DIR}/Src/app/ui/ui_controller.c
 	${CMAKE_CURRENT_SOURCE_DIR}/Src/drivers/buzzer.c
 	${CMAKE_CURRENT_SOURCE_DIR}/Src/drivers/buttons_decoder.c
 	${CMAKE_CURRENT_SOURCE_DIR}/Src/drivers/dht11.c
@@ -63,6 +68,11 @@ set(sources_SRCS
 set(include_DIRS
 	${CMAKE_CURRENT_SOURCE_DIR}/Inc
 	${CMAKE_CURRENT_SOURCE_DIR}/Src
+	${CMAKE_CURRENT_SOURCE_DIR}/Src/app/alarm
+	${CMAKE_CURRENT_SOURCE_DIR}/Src/app/core
+	${CMAKE_CURRENT_SOURCE_DIR}/Src/app/display
+	${CMAKE_CURRENT_SOURCE_DIR}/Src/app/environment
+	${CMAKE_CURRENT_SOURCE_DIR}/Src/app/ui
 	${CMAKE_CURRENT_SOURCE_DIR}/Src/drivers
 )
 

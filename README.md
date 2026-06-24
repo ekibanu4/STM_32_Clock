@@ -260,7 +260,14 @@ The application is separated from the concrete board through `board.h`.
 Current split:
 
 ```text
-Src/main.c                         -> clock UI/state logic
+Src/main.c                         -> main clock state machine and input flow
+Src/app/core/app_config.h          -> app timing/display/alarm constants
+Src/app/core/app_types.h           -> app-level modes, edit targets, alarm slots
+Src/app/alarm/alarm_manager.c/.h   -> alarm slots, DS1302 RAM storage, buzzer pattern
+Src/app/display/display_renderer.c/.h -> converts app state into 74HC595 display bytes
+Src/app/environment/environment_manager.c/.h -> cached DHT11 temperature/humidity reads
+Src/app/ui/auto_mode_scheduler.c/.h -> timed time/date/environment rotation
+Src/app/ui/ui_controller.c/.h      -> buttons, edit modes, manual mode switching
 Src/board.h                        -> stable hardware abstraction API
 Src/drivers/buzzer.c/.h            -> active buzzer driver
 Src/drivers/buttons_decoder.c/.h   -> ADC button ladder driver
@@ -270,12 +277,40 @@ Src/drivers/shift_register.c/.h    -> 74HC595 driver
 Src/drivers/dht11.c/.h             -> DHT11 timing driver
 Src/boards/f407_disc1/board.c      -> STM32F407G-DISC1 board implementation
 Src/boards/f407_disc1/board_config.h -> STM32F407G-DISC1 pinout/calibration
+Src/boards/f407_disc1/README.md    -> STM32F407G-DISC1 prototype pinout notes
 Src/boards/f407_disc1/stm32f407_lowlevel.h -> STM32F407 bare-metal helpers
 Src/boards/f407_disc1/board.cmake  -> CMake board package hook
 ```
 
-`main.c` should call `Board_*` functions instead of using GPIO, ADC, TIM,
-DS1302, DHT11, or 74HC595 helpers directly.
+`main.c` owns the top-level application loop: reading board inputs, asking app
+modules to update, applying brightness, and writing the rendered display.
+
+`Src/app` is grouped by application concern:
+
+- `core`: shared app types and constants
+- `ui`: button/edit/mode scheduling logic
+- `alarm`: alarm state, persistence, and buzzer pattern
+- `environment`: cached temperature/humidity sampling
+- `display`: rendering app state into shift-register bytes
+
+`ui_controller.c` owns button edges, long OFF handling, edit mode changes,
+manual mode switching, and time/date writes to RTC.
+
+`auto_mode_scheduler.c` owns the automatic time/date/environment cycle and the
+temporary pause after user input.
+
+`alarm_manager.c` owns the three alarm slots, selected alarm slot, alarm
+enable/disable commands, DS1302 RAM persistence format, trigger detection, and
+the active buzzer beep pattern.
+
+`environment_manager.c` owns periodic environment reads and keeps the last valid
+temperature/humidity sample for rendering.
+
+`display_renderer.c` owns the LED mapping rules. It receives current app state
+and returns a `ClockDisplay_t` with the two shift-register bytes.
+
+Application modules should call `Board_*` functions instead of using GPIO, ADC,
+TIM, DS1302, DHT11, or 74HC595 helpers directly.
 
 Board packages live under:
 
@@ -310,6 +345,9 @@ For a new board, create a new folder:
 Src/boards/<new_board_name>/
 ```
 
+Each board folder should keep its own README with prototype wiring, module
+power notes, reserved debug pins, and display mapping.
+
 Recommended naming examples:
 
 ```text
@@ -326,6 +364,7 @@ Each board package should provide:
 Src/boards/<new_board_name>/board.c
 Src/boards/<new_board_name>/board_config.h
 Src/boards/<new_board_name>/board.cmake
+Src/boards/<new_board_name>/README.md
 ```
 
 If the board uses bare-metal register helpers, also add a low-level file:
@@ -447,12 +486,13 @@ When adding a board:
 4. Replace low-level helpers if the MCU family changes.
 5. Confirm `PA13/PA14` or equivalent SWD pins are not used for app hardware.
 6. Build with `-DCLOCK_BOARD=<new_board_name>`.
-7. Verify LEDs first with a static display.
-8. Verify buttons ADC thresholds.
-9. Verify brightness PWM/OE.
-10. Verify RTC read/write and DS1302 RAM alarm storage.
-11. Verify DHT11 timing on the target clock.
-12. Verify buzzer output.
+7. Document the board pinout in `Src/boards/<new_board_name>/README.md`.
+8. Verify LEDs first with a static display.
+9. Verify buttons ADC thresholds.
+10. Verify brightness PWM/OE.
+11. Verify RTC read/write and DS1302 RAM alarm storage.
+12. Verify DHT11 timing on the target clock.
+13. Verify buzzer output.
 
 ### Important Rule
 
@@ -476,14 +516,11 @@ MCU registers.
 
 ## Future Direction
 
-The board package layer and basic drivers are now split out. Next cleanup steps:
+The board package layer, basic drivers, and main app modules are now split out.
+Next cleanup steps:
 
-- split `main.c` into application modules:
-  - alarm manager
-  - display renderer
-  - clock/date editing UI
-  - auto mode scheduler
 - make driver APIs less dependent on `board_config.h` where useful
+- consider a small shared numeric helper module for wrap/min/max utilities
 - add a second board package for the future smaller MCU
 - add a HAL-based board package when the final MCU is selected
 - keep `board.h` stable so the application logic survives board migration
