@@ -14,7 +14,7 @@
 				</extensions>
 			</storageModule>
 			<storageModule moduleId="com.st.stm32cube.ide.cmake.cmakeTarget">
-				<src>/Users/oleg/development/udemy/my_workspace/target/Clock_F030F4P6</src>
+				<src>${ProjDirPath}</src>
 				<build>build/Debug</build>
 				<generator>Ninja</generator>
 				<cmake_build_type>Debug</cmake_build_type>
@@ -31,7 +31,7 @@
 							<option id="com.st.stm32cube.ide.mcu.gnu.managedbuild.option.target_cpuid.95327276" name="CPU" superClass="com.st.stm32cube.ide.mcu.gnu.managedbuild.option.target_cpuid" useByScannerDiscovery="false" value="0" valueType="string"/>
 							<option id="com.st.stm32cube.ide.mcu.gnu.managedbuild.option.target_mcu.355021437" name="MCU" superClass="com.st.stm32cube.ide.mcu.gnu.managedbuild.option.target_mcu" useByScannerDiscovery="true" value="STM32F030F4Px" valueType="string"/>
 							<targetPlatform archList="all" binaryParser="org.eclipse.cdt.core.ELF" id="com.st.stm32cube.ide.mcu.gnu.managedbuild.targetplatform.603474022" isAbstract="false" osList="all" superClass="com.st.stm32cube.ide.mcu.gnu.managedbuild.targetplatform"/>
-							<builder arguments="--build &quot;build/Debug&quot;" buildPath="/Users/oleg/development/udemy/my_workspace/target/Clock_F030F4P6" cleanBuildTarget="--target clean" command="cmake" id="com.st.stm32cube.ide.mcu.gnu.managedbuild.builder.993884735" incrementalBuildTarget="" keepEnvironmentInBuildfile="false" managedBuildOn="false" name="Gnu Make Builder" superClass="com.st.stm32cube.ide.mcu.gnu.managedbuild.builder"/>
+							<builder arguments="--build &quot;build/Debug&quot;" buildPath="${ProjDirPath}" cleanBuildTarget="--target clean" command="cmake" id="com.st.stm32cube.ide.mcu.gnu.managedbuild.builder.993884735" incrementalBuildTarget="" keepEnvironmentInBuildfile="false" managedBuildOn="false" name="Gnu Make Builder" superClass="com.st.stm32cube.ide.mcu.gnu.managedbuild.builder"/>
 							<tool id="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.assembler.612809186" name="MCU/MPU GCC Assembler" superClass="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.assembler">
 								<option id="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.assembler.option.debuglevel.1349178004" name="Debug level" superClass="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.assembler.option.debuglevel" value="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.assembler.option.debuglevel.value.g3" valueType="enumerated"/>
 								<inputType id="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.assembler.input.1572061081" superClass="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.assembler.input"/>
@@ -79,7 +79,7 @@
 				</extensions>
 			</storageModule>
 			<storageModule moduleId="com.st.stm32cube.ide.cmake.cmakeTarget">
-				<src>/Users/oleg/development/udemy/my_workspace/target/Clock_F030F4P6</src>
+				<src>${ProjDirPath}</src>
 				<build>build/Release</build>
 				<generator>Ninja</generator>
 				<cmake_build_type>Release</cmake_build_type>
@@ -96,7 +96,7 @@
 							<option id="com.st.stm32cube.ide.mcu.gnu.managedbuild.option.target_cpuid.1030648698" superClass="com.st.stm32cube.ide.mcu.gnu.managedbuild.option.target_cpuid" useByScannerDiscovery="false" value="0" valueType="string"/>
 							<option id="com.st.stm32cube.ide.mcu.gnu.managedbuild.option.target_mcu.816351184" superClass="com.st.stm32cube.ide.mcu.gnu.managedbuild.option.target_mcu" useByScannerDiscovery="true" value="STM32F030F4Px" valueType="string"/>
 							<targetPlatform archList="all" binaryParser="org.eclipse.cdt.core.ELF" id="com.st.stm32cube.ide.mcu.gnu.managedbuild.targetplatform.765758858" isAbstract="false" osList="all" superClass="com.st.stm32cube.ide.mcu.gnu.managedbuild.targetplatform"/>
-							<builder arguments="--build &quot;build/Release&quot;" buildPath="/Users/oleg/development/udemy/my_workspace/target/Clock_F030F4P6" cleanBuildTarget="--target clean" command="cmake" id="com.st.stm32cube.ide.mcu.gnu.managedbuild.builder.2102367939" incrementalBuildTarget="" managedBuildOn="false" name="Gnu Make Builder.Release" superClass="com.st.stm32cube.ide.mcu.gnu.managedbuild.builder"/>
+							<builder arguments="--build &quot;build/Release&quot;" buildPath="${ProjDirPath}" cleanBuildTarget="--target clean" command="cmake" id="com.st.stm32cube.ide.mcu.gnu.managedbuild.builder.2102367939" incrementalBuildTarget="" managedBuildOn="false" name="Gnu Make Builder.Release" superClass="com.st.stm32cube.ide.mcu.gnu.managedbuild.builder"/>
 							<tool id="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.assembler.219123809" name="MCU/MPU GCC Assembler" superClass="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.assembler">
 								<option id="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.assembler.option.debuglevel.770003471" superClass="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.assembler.option.debuglevel" value="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.assembler.option.debuglevel.value.g3" valueType="enumerated"/>
 								<inputType id="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.assembler.input.345310770" superClass="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.assembler.input"/>
