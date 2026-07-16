@@ -29,6 +29,11 @@ static uint8_t DecrementWrap(uint8_t value, uint8_t minimum, uint8_t maximum) {
     return (uint8_t)(value - 1U);
 }
 
+static void ClearLastAlarmTrigger(void) {
+    lastAlarmTriggerHour = 255U;
+    lastAlarmTriggerMinute = 255U;
+}
+
 static uint8_t AlarmSlotFlags(const AlarmSlot_t *slot) {
     uint8_t flags = 0U;
 
@@ -133,6 +138,25 @@ void AlarmManager_DisableAll(void) {
     SaveAlarmsToRtcRam();
 }
 
+void AlarmManager_ToggleAll(void) {
+    uint8_t enableAll = (AlarmManager_AnyEnabled() == 0U) ? 1U : 0U;
+
+    AlarmManager_StopBuzzer();
+
+    for (uint8_t slotIndex = 0U; slotIndex < ALARM_SLOT_COUNT; ++slotIndex) {
+        if (enableAll == 0U) {
+            alarmSlots[slotIndex].enabled = 0U;
+        } else if (alarmSlots[slotIndex].configured != 0U) {
+            alarmSlots[slotIndex].enabled = 1U;
+        }
+    }
+
+    SaveAlarmsToRtcRam();
+    if (enableAll != 0U) {
+        ClearLastAlarmTrigger();
+    }
+}
+
 void AlarmManager_UpdateTrigger(const ClockDateTime_t *dateTime) {
     if ((dateTime->hours == lastAlarmTriggerHour) &&
         (dateTime->minutes == lastAlarmTriggerMinute)) {
@@ -228,6 +252,21 @@ void AlarmManager_EnableSelectedSlot(void) {
     alarmSlots[selectedAlarmSlot].configured = 1U;
     alarmSlots[selectedAlarmSlot].enabled = 1U;
     SaveAlarmsToRtcRam();
+    ClearLastAlarmTrigger();
+}
+
+uint8_t AlarmManager_ToggleSelectedSlot(void) {
+    if (alarmSlots[selectedAlarmSlot].configured == 0U) {
+        return 0U;
+    }
+
+    alarmSlots[selectedAlarmSlot].enabled =
+        (alarmSlots[selectedAlarmSlot].enabled == 0U) ? 1U : 0U;
+    SaveAlarmsToRtcRam();
+    if (alarmSlots[selectedAlarmSlot].enabled != 0U) {
+        ClearLastAlarmTrigger();
+    }
+    return 1U;
 }
 
 uint8_t AlarmManager_DisableSelectedSlotIfEnabled(void) {

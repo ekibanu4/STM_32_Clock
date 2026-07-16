@@ -11,5 +11,6 @@ void UiController_RefreshDateTime(void);
 DisplayMode_t UiController_DisplayMode(void);
 EditTarget_t UiController_EditTarget(void);
 const ClockDateTime_t *UiController_DateTime(void);
+uint8_t UiController_AlarmErrorActive(void);
 
 #endif /* UI_CONTROLLER_H_ */

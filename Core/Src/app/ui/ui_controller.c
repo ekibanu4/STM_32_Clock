@@ -13,6 +13,7 @@ static ClockDateTime_t currentDateTime = {0U, 0U, 12U, 1U, 1U};
 static ClockButton_t lastButton = CLOCK_BUTTON_NONE;
 static uint32_t offButtonHoldTicks = 0U;
 static uint8_t offLongPressHandled = 0U;
+static uint32_t alarmErrorTicks = 0U;
 
 static uint8_t MonthDays(uint8_t month) {
     switch (month) {
@@ -203,9 +204,10 @@ static void HandleOffButton(void) {
             return;
         }
 
-        if (AlarmManager_DisableSelectedSlotIfEnabled() != 0U) {
-            return;
+        if (AlarmManager_ToggleSelectedSlot() == 0U) {
+            alarmErrorTicks = ALARM_EMPTY_SLOT_ERROR_TICKS;
         }
+        return;
     }
 
     editTarget = EDIT_NONE;
@@ -243,6 +245,10 @@ void UiController_Init(void) {
 }
 
 void UiController_UpdateButton(ClockButton_t pressedButton) {
+    if (alarmErrorTicks > 0U) {
+        --alarmErrorTicks;
+    }
+
     if (pressedButton == CLOCK_BUTTON_OFF) {
         if (offButtonHoldTicks < OFF_LONG_PRESS_TICKS) {
             ++offButtonHoldTicks;
@@ -250,7 +256,7 @@ void UiController_UpdateButton(ClockButton_t pressedButton) {
         if ((offButtonHoldTicks >= OFF_LONG_PRESS_TICKS) &&
             (offLongPressHandled == 0U)) {
             AutoModeScheduler_PauseForUserActivity();
-            AlarmManager_DisableAll();
+            AlarmManager_ToggleAll();
             editTarget = EDIT_NONE;
             offLongPressHandled = 1U;
         }
@@ -290,4 +296,8 @@ EditTarget_t UiController_EditTarget(void) {
 
 const ClockDateTime_t *UiController_DateTime(void) {
     return &currentDateTime;
+}
+
+uint8_t UiController_AlarmErrorActive(void) {
+    return (alarmErrorTicks > 0U) ? 1U : 0U;
 }

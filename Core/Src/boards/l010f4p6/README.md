@@ -15,6 +15,7 @@ The CubeMX project is `l010f4p6.ioc`.
 | PA5 | 74HC595 OE / TIM2_CH1 | Active-low output enable PWM, pin 13 |
 | PA6 | Light ADC | Future LDR input, `ADC_IN6` |
 | PA7 | DHT11 DATA | Temperature/humidity single-wire data |
+| PA9 | Buzzer control | Active buzzer transistor drive |
 | PB1 | Main power sense ADC | Main VDD sense, `ADC_IN9` |
 | PC14 | LSE OSC32_IN | 32.768 kHz crystal |
 | PC15 | LSE OSC32_OUT | 32.768 kHz crystal |
@@ -82,6 +83,32 @@ number. The lower humidity LEDs are a scale, not a binary value:
 
 For example, top `011011` means `27 C`; three lit humidity LEDs means about
 `60% RH`.
+
+## Active Buzzer
+
+`PA9` drives the active buzzer through a transistor. The buzzer input is active
+high from firmware: `PA9 = 1` turns the buzzer on, `PA9 = 0` turns it off.
+
+## Alarms
+
+The firmware supports three alarm slots. Alarm settings are stored in RTC backup
+registers, so configured slots survive main-power loss while the RTC domain is
+kept alive by the supercapacitor.
+
+Alarm mode behavior:
+
+- `MODE` selects the alarm screen.
+- `UP` / `DOWN` select the alarm slot when not editing.
+- `SET` enters alarm hour/minute editing.
+- `OFF` while editing saves the selected slot and enables it.
+- `OFF` while not editing toggles the selected configured slot on/off.
+- `OFF` on an empty slot blinks all hour/minute LEDs as an error.
+- long `OFF` toggles all configured alarms: if any alarm is on it disables all;
+  if all are off it enables all configured slots.
+
+When an alarm is saved or re-enabled, firmware clears the "already triggered for
+this minute" guard. This means a slot can ring again after being reconfigured,
+even if that same slot already fired earlier today.
 
 ## RTC / LSE
 

@@ -188,6 +188,7 @@ static ClockDisplay_t BuildAlarmDisplay(EditTarget_t editTarget,
                                         const AlarmSlot_t *alarmSlots,
                                         uint8_t alarmSlotCount,
                                         uint8_t selectedAlarmSlot,
+                                        uint8_t alarmErrorActive,
                                         uint8_t blinkOn) {
     const AlarmSlot_t *slot = &alarmSlots[selectedAlarmSlot];
     ClockDisplay_t display = {0U, 0U};
@@ -195,6 +196,15 @@ static ClockDisplay_t BuildAlarmDisplay(EditTarget_t editTarget,
     AddAlarmStatusToDisplay(DISPLAY_ALARM, 1U, &display);
     AddAlarmSlotsToDisplay(alarmSlots, alarmSlotCount, selectedAlarmSlot,
                            blinkOn, &display);
+
+    if ((alarmErrorActive != 0U) && (blinkOn != 0U)) {
+        display.board1 = 0xFFU;
+        display.board2 |= (uint8_t)((1U << CLOCK_BOARD2_MINUTES_8_BIT) |
+                                    (1U << CLOCK_BOARD2_MINUTES_4_BIT) |
+                                    (1U << CLOCK_BOARD2_MINUTES_2_BIT) |
+                                    (1U << CLOCK_BOARD2_MINUTES_1_BIT));
+        return display;
+    }
 
     if (editTarget == EDIT_ALARM_HOURS) {
         if (blinkOn != 0U) {
@@ -259,12 +269,13 @@ ClockDisplay_t DisplayRenderer_Build(DisplayMode_t displayMode,
                                       uint8_t alarmSlotCount,
                                       uint8_t selectedAlarmSlot,
                                       uint8_t anyAlarmEnabled,
+                                      uint8_t alarmErrorActive,
                                       uint8_t blinkOn) {
     ClockDisplay_t display = {0U, 0U};
 
     if (displayMode == DISPLAY_ALARM) {
         return BuildAlarmDisplay(editTarget, alarmSlots, alarmSlotCount,
-                                 selectedAlarmSlot, blinkOn);
+                                 selectedAlarmSlot, alarmErrorActive, blinkOn);
     }
 
     if (editTarget != EDIT_NONE) {

@@ -364,7 +364,8 @@ static uint8_t App_Tick(void)
       UiController_DisplayMode(), UiController_EditTarget(),
       UiController_DateTime(), EnvironmentManager_Current(),
       AlarmManager_Slots(), AlarmManager_SlotCount(),
-      AlarmManager_SelectedSlot(), AlarmManager_AnyEnabled(), blinkOn);
+      AlarmManager_SelectedSlot(), AlarmManager_AnyEnabled(),
+      UiController_AlarmErrorActive(), blinkOn);
   Board_WriteDisplay(display);
 
   return 1U;

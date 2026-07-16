@@ -4,6 +4,7 @@
 #include "stm32l0xx_ll_adc.h"
 
 #define ALARM_STORAGE_SIZE 16U
+#define ALARM_STORAGE_BACKUP_REGISTER_COUNT 4U
 #define BRIGHTNESS_MAX 100U
 #define DISPLAY_TEST_BRIGHTNESS 20U
 #define ADC_FULL_SCALE 4095U
@@ -18,10 +19,24 @@
 extern ADC_HandleTypeDef hadc;
 extern RTC_HandleTypeDef hrtc;
 
-static uint8_t alarmStorage[ALARM_STORAGE_SIZE] = {0U};
 static uint8_t currentBrightness = DISPLAY_TEST_BRIGHTNESS;
 static ClockEnvironment_t lastEnvironment = {0U, 0U, 0U};
 static uint32_t lastEnvironmentReadMs = 0U;
+
+static volatile uint32_t *AlarmStorage_BackupRegister(uint8_t registerIndex) {
+  switch (registerIndex) {
+  case 0U:
+    return &RTC->BKP0R;
+  case 1U:
+    return &RTC->BKP1R;
+  case 2U:
+    return &RTC->BKP2R;
+  case 3U:
+    return &RTC->BKP3R;
+  default:
+    return &RTC->BKP4R;
+  }
+}
 
 static void Board_DelayCycles(volatile uint32_t cycles) {
   while (cycles > 0U) {
@@ -209,6 +224,13 @@ void Board_Init(void) {
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  HAL_GPIO_WritePin(BUZZER_GPIO, BUZZER_PIN, GPIO_PIN_RESET);
+  GPIO_InitStruct.Pin = BUZZER_PIN;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(BUZZER_GPIO, &GPIO_InitStruct);
 
   HAL_GPIO_WritePin(SHIFT_REGISTER_DATA_GPIO, SHIFT_REGISTER_DATA_PIN,
                     GPIO_PIN_RESET);
@@ -432,21 +454,62 @@ uint8_t Board_ReadEnvironment(ClockEnvironment_t *environment) {
 }
 
 void Board_ReadAlarmStorage(uint8_t *data, uint8_t size) {
+  uint8_t dataIndex = 0U;
+
   for (uint8_t index = 0U; index < size; ++index) {
-    data[index] = (index < ALARM_STORAGE_SIZE) ? alarmStorage[index] : 0U;
+    data[index] = 0U;
+  }
+
+  if (size > ALARM_STORAGE_SIZE) {
+    size = ALARM_STORAGE_SIZE;
+  }
+
+  HAL_PWR_EnableBkUpAccess();
+
+  for (uint8_t registerIndex = 0U;
+       (registerIndex < ALARM_STORAGE_BACKUP_REGISTER_COUNT) &&
+       (dataIndex < size);
+       ++registerIndex) {
+    uint32_t registerValue = *AlarmStorage_BackupRegister(registerIndex);
+
+    for (uint8_t byteIndex = 0U; (byteIndex < 4U) && (dataIndex < size);
+         ++byteIndex) {
+      data[dataIndex] = (uint8_t)((registerValue >> (8U * byteIndex)) & 0xFFU);
+      ++dataIndex;
+    }
   }
 }
 
 void Board_WriteAlarmStorage(const uint8_t *data, uint8_t size) {
-  uint8_t limit = (size < ALARM_STORAGE_SIZE) ? size : ALARM_STORAGE_SIZE;
+  uint8_t dataIndex = 0U;
 
-  for (uint8_t index = 0U; index < limit; ++index) {
-    alarmStorage[index] = data[index];
+  if (size > ALARM_STORAGE_SIZE) {
+    size = ALARM_STORAGE_SIZE;
   }
+
+  HAL_PWR_EnableBkUpAccess();
+  __HAL_RTC_WRITEPROTECTION_DISABLE(&hrtc);
+
+  for (uint8_t registerIndex = 0U;
+       registerIndex < ALARM_STORAGE_BACKUP_REGISTER_COUNT; ++registerIndex) {
+    uint32_t registerValue = 0U;
+
+    for (uint8_t byteIndex = 0U; byteIndex < 4U; ++byteIndex) {
+      if (dataIndex < size) {
+        registerValue |= ((uint32_t)data[dataIndex]) << (8U * byteIndex);
+      }
+      ++dataIndex;
+    }
+
+    *AlarmStorage_BackupRegister(registerIndex) = registerValue;
+  }
+
+  __HAL_RTC_WRITEPROTECTION_ENABLE(&hrtc);
 }
 
 void Board_SetBuzzer(uint8_t isEnabled) {
-  (void)isEnabled;
+  HAL_GPIO_WritePin(BUZZER_GPIO, BUZZER_PIN,
+                    (isEnabled != 0U) ? GPIO_PIN_SET : GPIO_PIN_RESET);
 }
 
 void Board_DelayLoop(void) {
