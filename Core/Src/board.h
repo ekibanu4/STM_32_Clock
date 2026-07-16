@@ -52,6 +52,8 @@ enum {
 };
 
 void Board_Init(void);
+uint8_t Board_IsMainPowerPresent(void);
+void Board_EnterStandby(void);
 ClockButton_t Board_ReadButton(void);
 uint8_t Board_ReadBrightness(void);
 void Board_SetBrightness(uint8_t brightness);

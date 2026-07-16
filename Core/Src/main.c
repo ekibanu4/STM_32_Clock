@@ -39,6 +39,7 @@
 #define MAIN_LOOP_DELAY_MS 20U
 #define RTC_REFRESH_INTERVAL_MS 1000U
 #define BLINK_INTERVAL_MS 800U
+#define STANDBY_WAKE_GRACE_MS 3000U
 
 /* USER CODE END PD */
 
@@ -51,7 +52,9 @@
 ADC_HandleTypeDef hadc;
 
 /* USER CODE BEGIN PV */
-static uint32_t lastRtcRefreshMs = 0U;
+RTC_HandleTypeDef hrtc;
+static uint8_t standbyWakeGraceActive = 0U;
+static uint32_t standbyWakeGraceStartMs = 0U;
 
 /* USER CODE END PV */
 
@@ -60,6 +63,8 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_ADC_Init(void);
 /* USER CODE BEGIN PFP */
+static void App_RTC_Init(void);
+static uint8_t App_Tick(void);
 
 /* USER CODE END PFP */
 
@@ -99,12 +104,19 @@ int main(void)
   MX_GPIO_Init();
   MX_ADC_Init();
   /* USER CODE BEGIN 2 */
+  App_RTC_Init();
+
+  if (__HAL_PWR_GET_FLAG(PWR_FLAG_SB) != RESET) {
+    standbyWakeGraceActive = 1U;
+    standbyWakeGraceStartMs = HAL_GetTick();
+    __HAL_PWR_CLEAR_FLAG(PWR_FLAG_SB);
+    __HAL_PWR_CLEAR_FLAG(PWR_FLAG_WU);
+  }
+
   Board_Init();
   UiController_Init();
   AlarmManager_Init();
   EnvironmentManager_Init();
-  Board_WriteDisplay((ClockDisplay_t){0U, 0U});
-  lastRtcRefreshMs = HAL_GetTick();
 
   /* USER CODE END 2 */
 
@@ -112,38 +124,11 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+    (void)App_Tick();
 
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    uint32_t nowMs = HAL_GetTick();
-    uint8_t blinkOn = ((nowMs / BLINK_INTERVAL_MS) % 2U) == 0U;
-    uint8_t brightness;
-    ClockDisplay_t display;
-
-    UiController_UpdateButton(Board_ReadButton());
-    UiController_UpdateAutoModeCycle();
-    EnvironmentManager_Update();
-
-    if ((nowMs - lastRtcRefreshMs) >= RTC_REFRESH_INTERVAL_MS) {
-      lastRtcRefreshMs = nowMs;
-      UiController_RefreshDateTime();
-      AlarmManager_UpdateTrigger(UiController_DateTime());
-    }
-
-    AlarmManager_UpdateBuzzer();
-
-    brightness = Board_ReadBrightness();
-    Board_SetBrightness(brightness);
-
-    display = DisplayRenderer_Build(
-        UiController_DisplayMode(), UiController_EditTarget(),
-        UiController_DateTime(), EnvironmentManager_Current(),
-        AlarmManager_Slots(), AlarmManager_SlotCount(),
-        AlarmManager_SelectedSlot(), AlarmManager_AnyEnabled(), blinkOn);
-    Board_WriteDisplay(display);
-
-    HAL_Delay(MAIN_LOOP_DELAY_MS);
   }
   /* USER CODE END 3 */
 }
@@ -157,14 +142,17 @@ void SystemClock_Config(void)
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
+  /** Configure the main internal regulator output voltage
+  */
+  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
+
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_HSI14;
-  RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-  RCC_OscInitStruct.HSI14State = RCC_HSI14_ON;
-  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
-  RCC_OscInitStruct.HSI14CalibrationValue = 16;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_MSI;
+  RCC_OscInitStruct.MSIState = RCC_MSI_ON;
+  RCC_OscInitStruct.MSICalibrationValue = 0;
+  RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_5;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
@@ -174,10 +162,11 @@ void SystemClock_Config(void)
   /** Initializes the CPU, AHB and APB buses clocks
   */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
+                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_MSI;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
   if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
   {
@@ -206,19 +195,22 @@ static void MX_ADC_Init(void)
   /** Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
   */
   hadc.Instance = ADC1;
-  hadc.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
+  hadc.Init.OversamplingMode = DISABLE;
+  hadc.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV1;
   hadc.Init.Resolution = ADC_RESOLUTION_12B;
-  hadc.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  hadc.Init.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
   hadc.Init.ScanConvMode = ADC_SCAN_DIRECTION_FORWARD;
-  hadc.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
-  hadc.Init.LowPowerAutoWait = DISABLE;
-  hadc.Init.LowPowerAutoPowerOff = DISABLE;
+  hadc.Init.DataAlign = ADC_DATAALIGN_RIGHT;
   hadc.Init.ContinuousConvMode = DISABLE;
   hadc.Init.DiscontinuousConvMode = DISABLE;
-  hadc.Init.ExternalTrigConv = ADC_SOFTWARE_START;
   hadc.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc.Init.ExternalTrigConv = ADC_SOFTWARE_START;
   hadc.Init.DMAContinuousRequests = DISABLE;
+  hadc.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
   hadc.Init.Overrun = ADC_OVR_DATA_PRESERVED;
+  hadc.Init.LowPowerAutoWait = DISABLE;
+  hadc.Init.LowPowerFrequencyMode = ENABLE;
+  hadc.Init.LowPowerAutoPowerOff = DISABLE;
   if (HAL_ADC_Init(&hadc) != HAL_OK)
   {
     Error_Handler();
@@ -226,9 +218,8 @@ static void MX_ADC_Init(void)
 
   /** Configure for the selected ADC regular channel to be converted.
   */
-  sConfig.Channel = ADC_CHANNEL_0;
+  sConfig.Channel = ADC_CHANNEL_1;
   sConfig.Rank = ADC_RANK_CHANNEL_NUMBER;
-  sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -236,7 +227,15 @@ static void MX_ADC_Init(void)
 
   /** Configure for the selected ADC regular channel to be converted.
   */
-  sConfig.Channel = ADC_CHANNEL_1;
+  sConfig.Channel = ADC_CHANNEL_6;
+  if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure for the selected ADC regular channel to be converted.
+  */
+  sConfig.Channel = ADC_CHANNEL_9;
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -260,51 +259,26 @@ static void MX_GPIO_Init(void)
   /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
-  __HAL_RCC_GPIOF_CLK_ENABLE();
+  __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_2|GPIO_PIN_3|GPIO_PIN_5|GPIO_PIN_7
-                          |GPIO_PIN_10, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_2|GPIO_PIN_3|GPIO_PIN_4, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_1, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin : PF1 */
-  GPIO_InitStruct.Pin = GPIO_PIN_1;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
-
-  /*Configure GPIO pins : PA2 PA3 PA5 PA7
-                           PA10 */
-  GPIO_InitStruct.Pin = GPIO_PIN_2|GPIO_PIN_3|GPIO_PIN_5|GPIO_PIN_7
-                          |GPIO_PIN_10;
+  /*Configure GPIO pins : PA2 PA3 PA4 */
+  GPIO_InitStruct.Pin = GPIO_PIN_2|GPIO_PIN_3|GPIO_PIN_4;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : PA6 */
-  GPIO_InitStruct.Pin = GPIO_PIN_6;
+  /*Configure GPIO pin : PA5 */
+  GPIO_InitStruct.Pin = GPIO_PIN_5;
   GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  GPIO_InitStruct.Alternate = GPIO_AF1_TIM3;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : PB1 */
-  GPIO_InitStruct.Pin = GPIO_PIN_1;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : PA9 */
-  GPIO_InitStruct.Pin = GPIO_PIN_9;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Alternate = GPIO_AF5_TIM2;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
@@ -313,6 +287,88 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+static void App_RTC_Init(void)
+{
+  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+
+  HAL_PWR_EnableBkUpAccess();
+  __HAL_RCC_LSEDRIVE_CONFIG(RCC_LSEDRIVE_LOW);
+
+  if (__HAL_RCC_GET_FLAG(RCC_FLAG_LSERDY) == RESET) {
+    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_LSE;
+    RCC_OscInitStruct.LSEState = RCC_LSE_ON;
+    if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+    {
+      return;
+    }
+  }
+
+  __HAL_RCC_RTC_CONFIG(RCC_RTCCLKSOURCE_LSE);
+  __HAL_RCC_RTC_ENABLE();
+
+  hrtc.Instance = RTC;
+  hrtc.Init.HourFormat = RTC_HOURFORMAT_24;
+  hrtc.Init.AsynchPrediv = 127;
+  hrtc.Init.SynchPrediv = 255;
+  hrtc.Init.OutPut = RTC_OUTPUT_DISABLE;
+  hrtc.Init.OutPutPolarity = RTC_OUTPUT_POLARITY_HIGH;
+  hrtc.Init.OutPutType = RTC_OUTPUT_TYPE_OPENDRAIN;
+  if (HAL_RTC_Init(&hrtc) != HAL_OK)
+  {
+    return;
+  }
+}
+
+static uint8_t App_Tick(void)
+{
+  static uint32_t lastLoopTick = 0U;
+  static uint32_t lastRtcRefreshTick = 0U;
+  static uint32_t lastBlinkTick = 0U;
+  static uint8_t blinkOn = 1U;
+  uint32_t now = HAL_GetTick();
+  ClockDisplay_t display = {0U, 0U};
+
+  if ((standbyWakeGraceActive != 0U) &&
+      ((now - standbyWakeGraceStartMs) >= STANDBY_WAKE_GRACE_MS)) {
+    standbyWakeGraceActive = 0U;
+  }
+
+  if ((standbyWakeGraceActive == 0U) && (Board_IsMainPowerPresent() == 0U)) {
+    Board_EnterStandby();
+  }
+
+  if ((now - lastLoopTick) < MAIN_LOOP_DELAY_MS) {
+    return 0U;
+  }
+  lastLoopTick = now;
+
+  if ((now - lastBlinkTick) >= BLINK_INTERVAL_MS) {
+    blinkOn = (blinkOn == 0U) ? 1U : 0U;
+    lastBlinkTick = now;
+  }
+
+  UiController_UpdateButton(Board_ReadButton());
+  UiController_UpdateAutoModeCycle();
+  EnvironmentManager_Update();
+
+  if ((now - lastRtcRefreshTick) >= RTC_REFRESH_INTERVAL_MS) {
+    UiController_RefreshDateTime();
+    lastRtcRefreshTick = now;
+  }
+
+  AlarmManager_UpdateTrigger(UiController_DateTime());
+  AlarmManager_UpdateBuzzer();
+
+  Board_SetBrightness(Board_ReadBrightness());
+  display = DisplayRenderer_Build(
+      UiController_DisplayMode(), UiController_EditTarget(),
+      UiController_DateTime(), EnvironmentManager_Current(),
+      AlarmManager_Slots(), AlarmManager_SlotCount(),
+      AlarmManager_SelectedSlot(), AlarmManager_AnyEnabled(), blinkOn);
+  Board_WriteDisplay(display);
+
+  return 1U;
+}
 
 /* USER CODE END 4 */
 
@@ -323,7 +379,6 @@ static void MX_GPIO_Init(void)
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
   __disable_irq();
   while (1)
   {
