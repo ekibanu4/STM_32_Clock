@@ -14,6 +14,7 @@ The CubeMX project is `l010f4p6.ioc`.
 | PA4 | 74HC595 SRCLK / SH_CP | Shift-register shift clock, pin 11 |
 | PA5 | 74HC595 OE / TIM2_CH1 | Active-low output enable PWM, pin 13 |
 | PA6 | Light ADC | Future LDR input, `ADC_IN6` |
+| PA7 | DHT11 DATA | Temperature/humidity single-wire data |
 | PB1 | Main power sense ADC | Main VDD sense, `ADC_IN9` |
 | PC14 | LSE OSC32_IN | 32.768 kHz crystal |
 | PC15 | LSE OSC32_OUT | 32.768 kHz crystal |
@@ -49,6 +50,38 @@ Current thresholds:
 | OFF | 3360 |
 
 Values above `3360` are treated as no button.
+
+## DHT11 Environment Sensor
+
+The DHT11 data line is connected to `PA7`. CubeMX does not need a fixed pin
+mode for this line because firmware switches it between open-drain output for
+the start pulse and input for the sensor response.
+
+Use a pull-up on DATA to 3.3V. A ready-made DHT11 module may already include
+this pull-up; a bare sensor usually needs an external resistor around
+`4.7k-10k`.
+
+The firmware waits a short startup delay before the first read and then polls
+the DHT11 no faster than once every 2 seconds. The bit decoder follows the
+older working driver style: it measures each low/high pulse pair and treats the
+bit as `1` when the high pulse is longer than the low pulse. This is more
+stable on the low-clocked L010 than sampling at a fixed microsecond offset.
+
+In environment display mode, the top/six-hour LEDs show temperature as a binary
+number. The lower humidity LEDs are a scale, not a binary value:
+
+| Humidity | Lit humidity LEDs |
+| --- | ---: |
+| `< 30%` | 0 |
+| `40%` | 1 |
+| `50%` | 2 |
+| `60%` | 3 |
+| `70%` | 4 |
+| `80%` | 5 |
+| `>= 90%` | 6 |
+
+For example, top `011011` means `27 C`; three lit humidity LEDs means about
+`60% RH`.
 
 ## RTC / LSE
 

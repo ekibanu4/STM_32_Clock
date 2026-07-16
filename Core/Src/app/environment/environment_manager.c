@@ -19,7 +19,7 @@ static void ReadEnvironmentSensor(void) {
 }
 
 void EnvironmentManager_Init(void) {
-    ReadEnvironmentSensor();
+    environmentReadTicks = ENVIRONMENT_STARTUP_DELAY_TICKS;
 }
 
 void EnvironmentManager_Update(void) {
