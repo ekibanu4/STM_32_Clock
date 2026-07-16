@@ -13,7 +13,7 @@ The CubeMX project is `l010f4p6.ioc`.
 | PA3 | 74HC595 RCLK / ST_CP | Shift-register latch clock, pin 12 |
 | PA4 | 74HC595 SRCLK / SH_CP | Shift-register shift clock, pin 11 |
 | PA5 | 74HC595 OE / TIM2_CH1 | Active-low output enable PWM, pin 13 |
-| PA6 | Light ADC | Future LDR input, `ADC_IN6` |
+| PA6 | Light ADC | LDR/light sensor input, `ADC_IN6` |
 | PA7 | DHT11 DATA | Temperature/humidity single-wire data |
 | PA9 | Buzzer control | Active buzzer transistor drive |
 | PB1 | Main power sense ADC | Main VDD sense, `ADC_IN9` |
@@ -33,8 +33,8 @@ The current display module uses two chained 74HC595 shift registers:
 | PA4 | SRCLK / SH_CP | 11 |
 | PA5 | OE / TIM2_CH1 PWM | 13 |
 
-OE is active-low. Firmware currently starts with fixed brightness `20%` while
-the LDR input is not used.
+OE is active-low. Firmware controls the display brightness automatically from
+the light sensor on `PA6 / ADC_IN6`.
 
 ## Buttons ADC Ladder
 
@@ -83,6 +83,23 @@ number. The lower humidity LEDs are a scale, not a binary value:
 
 For example, top `011011` means `27 C`; three lit humidity LEDs means about
 `60% RH`.
+
+## Light Sensor
+
+The light sensor is connected to `PA6 / ADC_IN6`. The firmware reads it through
+the shared ADC and maps the raw value to six brightness steps with hysteresis,
+then applies that brightness through `PA5 / TIM2_CH1` to the 74HC595 OE pin.
+
+Current brightness calibration:
+
+| Setting | Value |
+| --- | ---: |
+| ADC dark | 1000 |
+| ADC bright | 3200 |
+| Brightness min | 2% |
+| Brightness max | 25% |
+| Brightness levels | 6 |
+| ADC hysteresis | 80 |
 
 ## Active Buzzer
 

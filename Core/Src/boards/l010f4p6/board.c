@@ -311,7 +311,45 @@ ClockButton_t Board_ReadButton(void) {
 }
 
 uint8_t Board_ReadBrightness(void) {
-  return currentBrightness;
+  static uint8_t currentLevel = 0U;
+  uint16_t adcValue = ADC_ReadChannel(LIGHT_SENSOR_ADC_CHANNEL);
+  uint32_t adcRange = LIGHT_SENSOR_ADC_BRIGHT - LIGHT_SENSOR_ADC_DARK;
+  uint8_t maxLevel = LIGHT_SENSOR_BRIGHTNESS_LEVELS - 1U;
+  uint8_t nextLevel = currentLevel;
+  uint32_t brightnessRange;
+
+  if ((adcRange == 0U) || (maxLevel == 0U)) {
+    return currentBrightness;
+  }
+
+  if (adcValue <= LIGHT_SENSOR_ADC_DARK) {
+    nextLevel = 0U;
+  } else if (adcValue >= LIGHT_SENSOR_ADC_BRIGHT) {
+    nextLevel = maxLevel;
+  } else {
+    uint32_t adcOffset = adcValue - LIGHT_SENSOR_ADC_DARK;
+    nextLevel =
+        (uint8_t)((adcOffset * maxLevel + (adcRange / 2U)) / adcRange);
+  }
+
+  if (nextLevel > currentLevel) {
+    uint32_t upThreshold =
+        LIGHT_SENSOR_ADC_DARK +
+        ((uint32_t)(currentLevel + 1U) * adcRange) / maxLevel;
+    if (adcValue >= (upThreshold + LIGHT_SENSOR_ADC_HYSTERESIS)) {
+      currentLevel = nextLevel;
+    }
+  } else if (nextLevel < currentLevel) {
+    uint32_t downThreshold =
+        LIGHT_SENSOR_ADC_DARK + ((uint32_t)currentLevel * adcRange) / maxLevel;
+    if ((adcValue + LIGHT_SENSOR_ADC_HYSTERESIS) <= downThreshold) {
+      currentLevel = nextLevel;
+    }
+  }
+
+  brightnessRange = LIGHT_SENSOR_BRIGHTNESS_MAX - LIGHT_SENSOR_BRIGHTNESS_MIN;
+  return (uint8_t)(LIGHT_SENSOR_BRIGHTNESS_MIN +
+                   (((uint32_t)currentLevel * brightnessRange) / maxLevel));
 }
 
 void Board_SetBrightness(uint8_t brightness) {
