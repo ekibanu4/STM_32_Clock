@@ -397,6 +397,7 @@ void Board_ReadDateTime(ClockDateTime_t *dateTime) {
   dateTime->hours = time.Hours;
   dateTime->day = date.Date;
   dateTime->month = date.Month;
+  dateTime->year = date.Year;
 }
 
 void Board_WriteTime(uint8_t hours, uint8_t minutes, uint8_t seconds) {
@@ -410,13 +411,13 @@ void Board_WriteTime(uint8_t hours, uint8_t minutes, uint8_t seconds) {
   (void)HAL_RTC_SetTime(&hrtc, &time, RTC_FORMAT_BIN);
 }
 
-void Board_WriteDate(uint8_t day, uint8_t month) {
+void Board_WriteDate(uint8_t day, uint8_t month, uint8_t year) {
   RTC_DateTypeDef date = {0};
 
   date.WeekDay = RTC_WEEKDAY_MONDAY;
   date.Month = month;
   date.Date = day;
-  date.Year = 24U;
+  date.Year = (uint8_t)(year % 100U);
   (void)HAL_RTC_SetDate(&hrtc, &date, RTC_FORMAT_BIN);
 }
 

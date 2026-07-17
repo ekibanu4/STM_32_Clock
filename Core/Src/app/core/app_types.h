@@ -18,6 +18,7 @@ typedef enum {
     EDIT_HOURS,
     EDIT_DAY,
     EDIT_MONTH,
+    EDIT_YEAR,
     EDIT_ALARM_HOURS,
     EDIT_ALARM_MINUTES
 } EditTarget_t;

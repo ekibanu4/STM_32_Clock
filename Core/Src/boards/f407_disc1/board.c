@@ -27,13 +27,14 @@ static ClockButton_t Board_ConvertButton(ButtonCode_t button) {
 }
 
 static ClockDateTime_t Board_FromHardwareDateTime(const DateTime_t *dateTime) {
-  ClockDateTime_t appDateTime = {0U, 0U, 0U, 0U, 0U};
+  ClockDateTime_t appDateTime = {0U, 0U, 0U, 0U, 0U, 0U};
 
   appDateTime.seconds = dateTime->seconds;
   appDateTime.minutes = dateTime->minutes;
   appDateTime.hours = dateTime->hours;
   appDateTime.day = dateTime->day;
   appDateTime.month = dateTime->month;
+  appDateTime.year = 0U;
 
   return appDateTime;
 }
@@ -75,7 +76,8 @@ void Board_WriteTime(uint8_t hours, uint8_t minutes, uint8_t seconds) {
   DS1302_WriteTime(hours, minutes, seconds);
 }
 
-void Board_WriteDate(uint8_t day, uint8_t month) {
+void Board_WriteDate(uint8_t day, uint8_t month, uint8_t year) {
+  (void)year;
   DS1302_WriteDate(day, month);
 }
 

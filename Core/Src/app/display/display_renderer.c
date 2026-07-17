@@ -123,6 +123,12 @@ static void AddAlarmStatusToDisplay(DisplayMode_t displayMode,
     }
 }
 
+static void AddDateYearEditMarker(uint8_t blinkOn, ClockDisplay_t *display) {
+    if (blinkOn != 0U) {
+        display->board2 |= (uint8_t)(1U << CLOCK_BOARD2_MODE_TIME_BIT);
+    }
+}
+
 static void AddAlarmSlotsToDisplay(const AlarmSlot_t *alarmSlots,
                                    uint8_t alarmSlotCount,
                                    uint8_t selectedAlarmSlot, uint8_t blinkOn,
@@ -236,7 +242,7 @@ static ClockDisplay_t BuildEditDisplay(DisplayMode_t displayMode,
 
     AddAlarmStatusToDisplay(displayMode, anyAlarmEnabled, &display);
 
-    if (blinkOn == 0U) {
+    if ((blinkOn == 0U) && (editTarget != EDIT_YEAR)) {
         return display;
     }
 
@@ -252,6 +258,13 @@ static ClockDisplay_t BuildEditDisplay(DisplayMode_t displayMode,
         break;
     case EDIT_MONTH:
         display.board1 = HoursToBoard1Mask(dateTime->month);
+        break;
+    case EDIT_YEAR:
+        display.board1 = HoursToBoard1Mask(20U);
+        if (blinkOn != 0U) {
+            AddMinutesToDisplay(dateTime->year, &display);
+        }
+        AddDateYearEditMarker(blinkOn, &display);
         break;
     case EDIT_NONE:
     default:

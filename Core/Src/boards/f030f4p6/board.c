@@ -435,6 +435,7 @@ void Board_ReadDateTime(ClockDateTime_t *dateTime) {
       BcdToDecimal((uint8_t)(DS1302_ReadRegister(DS1302_DATE_READ) & 0x3FU));
   dateTime->month =
       BcdToDecimal((uint8_t)(DS1302_ReadRegister(DS1302_MONTH_READ) & 0x1FU));
+  dateTime->year = 0U;
 }
 
 void Board_WriteTime(uint8_t hours, uint8_t minutes, uint8_t seconds) {
@@ -445,7 +446,8 @@ void Board_WriteTime(uint8_t hours, uint8_t minutes, uint8_t seconds) {
                        DecimalToBcd((uint8_t)(hours & 0x3FU)));
 }
 
-void Board_WriteDate(uint8_t day, uint8_t month) {
+void Board_WriteDate(uint8_t day, uint8_t month, uint8_t year) {
+  (void)year;
   DS1302_SetWriteProtect(0U);
   DS1302_WriteRegister(DS1302_DATE_WRITE, DecimalToBcd(day));
   DS1302_WriteRegister(DS1302_MONTH_WRITE, DecimalToBcd(month));

@@ -132,6 +132,12 @@ even if that same slot already fired earlier today.
 Time is read from the internal RTC clocked by an external 32.768 kHz crystal on
 `PC14/PC15`.
 
+Date setup cycles through day, month, and year. The year is stored in the STM32
+RTC as `00..99` with an implied `20xx` century. While editing the year, the
+hour LEDs show the fixed `20` prefix and the minute LEDs show the editable
+`00..99` year value; the first alarm indicator blinks as the year-edit marker.
+Leap-year day limits are calculated for the `2000..2099` range.
+
 RTC init keeps the LSE path conservative:
 
 - if `LSERDY` is already set after standby wake, firmware does not re-run

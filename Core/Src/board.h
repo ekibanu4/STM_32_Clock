@@ -18,6 +18,7 @@ typedef struct {
   uint8_t hours;
   uint8_t day;
   uint8_t month;
+  uint8_t year;
 } ClockDateTime_t;
 
 typedef struct {
@@ -60,7 +61,7 @@ void Board_SetBrightness(uint8_t brightness);
 void Board_WriteDisplay(ClockDisplay_t display);
 void Board_ReadDateTime(ClockDateTime_t *dateTime);
 void Board_WriteTime(uint8_t hours, uint8_t minutes, uint8_t seconds);
-void Board_WriteDate(uint8_t day, uint8_t month);
+void Board_WriteDate(uint8_t day, uint8_t month, uint8_t year);
 uint8_t Board_ReadEnvironment(ClockEnvironment_t *environment);
 void Board_ReadAlarmStorage(uint8_t *data, uint8_t size);
 void Board_WriteAlarmStorage(const uint8_t *data, uint8_t size);
