@@ -9,10 +9,10 @@ The CubeMX project is `l010f4p6.ioc`.
 | --- | --- | --- |
 | PA0 | WKUP1 | Main-power wake input, `SYS_WKUP1` in CubeMX |
 | PA1 | Buttons ADC | Five-button resistor ladder, `ADC_IN1` |
-| PA2 | 74HC595 SER / DS | Shift-register serial data, pin 14 |
-| PA3 | 74HC595 RCLK / ST_CP | Shift-register latch clock, pin 12 |
-| PA4 | 74HC595 SRCLK / SH_CP | Shift-register shift clock, pin 11 |
-| PA5 | 74HC595 OE / TIM2_CH1 | Active-low output enable PWM, pin 13 |
+| PA2 | Display DIN | 74HC595 SER / MAX721x DIN |
+| PA3 | Display CS | 74HC595 RCLK / MAX721x CS |
+| PA4 | Display CLK | 74HC595 SRCLK / MAX721x CLK |
+| PA5 | 74HC595 OE / TIM2_CH1 | Active-low output enable PWM, unused by MAX721x |
 | PA6 | Light ADC | LDR/light sensor input, `ADC_IN6` |
 | PA7 | DHT11 DATA | Temperature/humidity single-wire data |
 | PA9 | Buzzer control | Active buzzer transistor drive |
@@ -35,6 +35,56 @@ The current display module uses two chained 74HC595 shift registers:
 
 OE is active-low. Firmware controls the display brightness automatically from
 the light sensor on `PA6 / ADC_IN6`.
+
+## MAX721x 8x8 Matrix Display
+
+This experimental branch uses an 8x8 LED matrix driven by a MAX721x-compatible
+chip. It reuses the same display connector pin order as the shift-register
+display:
+
+| MCU pin | Matrix signal |
+| --- | --- |
+| PA2 | DIN |
+| PA3 | CS |
+| PA4 | CLK |
+
+`PA5 / OE` is not connected for the MAX721x display. Brightness is controlled
+through the MAX721x intensity register.
+
+Matrix row layout:
+
+| Row | Content |
+| ---: | --- |
+| 1 | Hours, binary |
+| 2 | Minutes, binary |
+| 3 | Seconds, binary |
+| 4 | Day, binary |
+| 5 | Month, binary |
+| 6 | Year, binary, base 2000 |
+| 7 | Temperature, binary |
+| 8 | Humidity, bar scale |
+
+Numeric values are right-aligned in the low seven columns. The leftmost column
+is reserved for mode/alarm markers, so years are stored and displayed as
+`00..99` with base year 2000. For example, `26` means 2026.
+
+`MODE` briefly shows a focus marker on the overview screen. The focused mode is
+shown as a dot in the leftmost column of the related row; numeric values stay
+right-aligned. Automatic mode cycling does not move this marker because the
+matrix overview already shows all values at once.
+
+Date setup cycles through day, month, and year.
+
+While editing time, date, or alarm fields, the matrix keeps the numeric value
+visible and blinks a single marker dot on the row being edited.
+
+The humidity row uses all eight LEDs as a scale from `20%` to `100%`: `20%` or
+lower is empty, `30%` lights one LED, and `100%` lights all eight.
+
+Alarm mode switches to a dedicated alarm screen. The three alarm slots use two
+rows each: hours row, then minutes row. An enabled alarm has a dot in the
+leftmost column of its hours row; the selected alarm has a dot in the leftmost
+column of its minutes row. Hour and minute values remain right-aligned.
 
 ## Buttons ADC Ladder
 

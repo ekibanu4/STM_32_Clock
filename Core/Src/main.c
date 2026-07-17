@@ -327,6 +327,7 @@ static uint8_t App_Tick(void)
   static uint8_t blinkOn = 1U;
   uint32_t now = HAL_GetTick();
   ClockDisplay_t display = {0U, 0U};
+  uint8_t brightness;
 
   if ((standbyWakeGraceActive != 0U) &&
       ((now - standbyWakeGraceStartMs) >= STANDBY_WAKE_GRACE_MS)) {
@@ -359,13 +360,15 @@ static uint8_t App_Tick(void)
   AlarmManager_UpdateTrigger(UiController_DateTime());
   AlarmManager_UpdateBuzzer();
 
-  Board_SetBrightness(Board_ReadBrightness());
+  brightness = Board_ReadBrightness();
+  Board_SetBrightness(brightness);
   display = DisplayRenderer_Build(
       UiController_DisplayMode(), UiController_EditTarget(),
       UiController_DateTime(), EnvironmentManager_Current(),
       AlarmManager_Slots(), AlarmManager_SlotCount(),
       AlarmManager_SelectedSlot(), AlarmManager_AnyEnabled(),
-      UiController_AlarmErrorActive(), blinkOn);
+      UiController_AlarmErrorActive(), Board_ReadLightLevel(),
+      UiController_ModeFocusActive(), blinkOn);
   Board_WriteDisplay(display);
 
   return 1U;

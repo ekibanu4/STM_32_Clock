@@ -6,14 +6,16 @@
 #include "app_config.h"
 #include "auto_mode_scheduler.h"
 #include "board.h"
+#include "board_config.h"
 
 static DisplayMode_t displayMode = DISPLAY_TIME;
 static EditTarget_t editTarget = EDIT_NONE;
-static ClockDateTime_t currentDateTime = {0U, 0U, 12U, 1U, 1U};
+static ClockDateTime_t currentDateTime = {0U, 0U, 12U, 1U, 1U, 26U};
 static ClockButton_t lastButton = CLOCK_BUTTON_NONE;
 static uint32_t offButtonHoldTicks = 0U;
 static uint8_t offLongPressHandled = 0U;
 static uint32_t alarmErrorTicks = 0U;
+static uint32_t modeFocusTicks = 0U;
 
 static uint8_t MonthDays(uint8_t month) {
     switch (month) {
@@ -56,7 +58,8 @@ static void SaveTimeToRtc(void) {
 }
 
 static void SaveDateToRtc(void) {
-    Board_WriteDate(currentDateTime.day, currentDateTime.month);
+    Board_WriteDate(currentDateTime.day, currentDateTime.month,
+                    currentDateTime.year);
 }
 
 static void NormalizeDateTime(void) {
@@ -71,6 +74,9 @@ static void NormalizeDateTime(void) {
     }
     if ((currentDateTime.month < 1U) || (currentDateTime.month > 12U)) {
         currentDateTime.month = 1U;
+    }
+    if (currentDateTime.year > 99U) {
+        currentDateTime.year = 0U;
     }
     if ((currentDateTime.day < 1U) ||
         (currentDateTime.day > MonthDays(currentDateTime.month))) {
@@ -92,6 +98,10 @@ static void HandleModeButton(void) {
     } else {
         displayMode = DISPLAY_TIME;
     }
+
+#if DISPLAY_DRIVER_MAX721X_8X8
+    modeFocusTicks = MATRIX_MODE_FOCUS_TICKS;
+#endif
 }
 
 static void HandleSetButton(void) {
@@ -103,10 +113,12 @@ static void HandleSetButton(void) {
             editTarget = EDIT_HOURS;
         }
     } else if (displayMode == DISPLAY_DATE) {
-        if ((editTarget == EDIT_NONE) || (editTarget == EDIT_MONTH)) {
+        if ((editTarget == EDIT_NONE) || (editTarget == EDIT_YEAR)) {
             editTarget = EDIT_DAY;
-        } else {
+        } else if (editTarget == EDIT_DAY) {
             editTarget = EDIT_MONTH;
+        } else {
+            editTarget = EDIT_YEAR;
         }
     } else if (displayMode == DISPLAY_ALARM) {
         if ((editTarget == EDIT_NONE) || (editTarget == EDIT_ALARM_MINUTES)) {
@@ -139,6 +151,10 @@ static void HandleUpButton(void) {
         if (currentDateTime.day > MonthDays(currentDateTime.month)) {
             currentDateTime.day = MonthDays(currentDateTime.month);
         }
+        SaveDateToRtc();
+        break;
+    case EDIT_YEAR:
+        currentDateTime.year = IncrementWrap(currentDateTime.year, 0U, 99U);
         SaveDateToRtc();
         break;
     case EDIT_ALARM_HOURS:
@@ -178,6 +194,10 @@ static void HandleDownButton(void) {
         if (currentDateTime.day > MonthDays(currentDateTime.month)) {
             currentDateTime.day = MonthDays(currentDateTime.month);
         }
+        SaveDateToRtc();
+        break;
+    case EDIT_YEAR:
+        currentDateTime.year = DecrementWrap(currentDateTime.year, 0U, 99U);
         SaveDateToRtc();
         break;
     case EDIT_ALARM_HOURS:
@@ -248,6 +268,9 @@ void UiController_UpdateButton(ClockButton_t pressedButton) {
     if (alarmErrorTicks > 0U) {
         --alarmErrorTicks;
     }
+    if (modeFocusTicks > 0U) {
+        --modeFocusTicks;
+    }
 
     if (pressedButton == CLOCK_BUTTON_OFF) {
         if (offButtonHoldTicks < OFF_LONG_PRESS_TICKS) {
@@ -300,4 +323,8 @@ const ClockDateTime_t *UiController_DateTime(void) {
 
 uint8_t UiController_AlarmErrorActive(void) {
     return (alarmErrorTicks > 0U) ? 1U : 0U;
+}
+
+uint8_t UiController_ModeFocusActive(void) {
+    return (modeFocusTicks > 0U) ? 1U : 0U;
 }

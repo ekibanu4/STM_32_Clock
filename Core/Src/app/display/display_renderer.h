@@ -14,6 +14,8 @@ ClockDisplay_t DisplayRenderer_Build(DisplayMode_t displayMode,
                                       uint8_t selectedAlarmSlot,
                                       uint8_t anyAlarmEnabled,
                                       uint8_t alarmErrorActive,
+                                      uint8_t lightLevel,
+                                      uint8_t modeFocusActive,
                                       uint8_t blinkOn);
 
 #endif /* DISPLAY_RENDERER_H_ */

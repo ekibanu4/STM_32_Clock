@@ -15,11 +15,19 @@
 #define DHT11_START_LOW_MS 20U
 #define DHT11_PULL_TIME_US 55U
 #define DHT11_MAX_PULSE_LOOPS 10000U
+#define MAX721X_REGISTER_DIGIT0 0x01U
+#define MAX721X_REGISTER_DECODE_MODE 0x09U
+#define MAX721X_REGISTER_INTENSITY 0x0AU
+#define MAX721X_REGISTER_SCAN_LIMIT 0x0BU
+#define MAX721X_REGISTER_SHUTDOWN 0x0CU
+#define MAX721X_REGISTER_DISPLAY_TEST 0x0FU
+#define MAX721X_INTENSITY_MAX 15U
 
 extern ADC_HandleTypeDef hadc;
 extern RTC_HandleTypeDef hrtc;
 
 static uint8_t currentBrightness = DISPLAY_TEST_BRIGHTNESS;
+static uint8_t currentLightLevel = 0U;
 static ClockEnvironment_t lastEnvironment = {0U, 0U, 0U};
 static uint32_t lastEnvironmentReadMs = 0U;
 
@@ -76,6 +84,7 @@ static void ShiftRegister_Pulse(GPIO_TypeDef *GPIOx, uint16_t pin) {
   HAL_GPIO_WritePin(GPIOx, pin, GPIO_PIN_RESET);
 }
 
+#if !DISPLAY_DRIVER_MAX721X_8X8
 static void ShiftRegister_OutputEnablePwmInit(uint8_t brightness) {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
 
@@ -102,6 +111,56 @@ static void ShiftRegister_OutputEnablePwmInit(uint8_t brightness) {
   TIM2->CCER |= TIM_CCER_CC1P | TIM_CCER_CC1E;
   TIM2->EGR = TIM_EGR_UG;
   TIM2->CR1 |= TIM_CR1_ARPE | TIM_CR1_CEN;
+}
+#endif
+
+static void Max721x_SendByte(uint8_t value) {
+  for (int8_t bit = 7; bit >= 0; --bit) {
+    HAL_GPIO_WritePin(SHIFT_REGISTER_DATA_GPIO, SHIFT_REGISTER_DATA_PIN,
+                      ((value >> bit) & 0x01U) ? GPIO_PIN_SET
+                                                : GPIO_PIN_RESET);
+    ShiftRegister_Pulse(SHIFT_REGISTER_CLOCK_GPIO, SHIFT_REGISTER_CLOCK_PIN);
+  }
+}
+
+static void Max721x_WriteRegister(uint8_t address, uint8_t value) {
+  HAL_GPIO_WritePin(SHIFT_REGISTER_LATCH_GPIO, SHIFT_REGISTER_LATCH_PIN,
+                    GPIO_PIN_RESET);
+  Max721x_SendByte(address);
+  Max721x_SendByte(value);
+  HAL_GPIO_WritePin(SHIFT_REGISTER_LATCH_GPIO, SHIFT_REGISTER_LATCH_PIN,
+                    GPIO_PIN_SET);
+}
+
+static uint8_t Max721x_BrightnessToIntensity(uint8_t brightness) {
+  if (brightness > BRIGHTNESS_MAX) {
+    brightness = BRIGHTNESS_MAX;
+  }
+  return (uint8_t)(((uint16_t)brightness * MAX721X_INTENSITY_MAX +
+                    (BRIGHTNESS_MAX / 2U)) /
+                   BRIGHTNESS_MAX);
+}
+
+static void Max721x_Init(uint8_t brightness) {
+  HAL_GPIO_WritePin(SHIFT_REGISTER_LATCH_GPIO, SHIFT_REGISTER_LATCH_PIN,
+                    GPIO_PIN_SET);
+  HAL_GPIO_WritePin(SHIFT_REGISTER_DATA_GPIO, SHIFT_REGISTER_DATA_PIN,
+                    GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(SHIFT_REGISTER_CLOCK_GPIO, SHIFT_REGISTER_CLOCK_PIN,
+                    GPIO_PIN_RESET);
+
+  Max721x_WriteRegister(MAX721X_REGISTER_SHUTDOWN, 0x00U);
+  Max721x_WriteRegister(MAX721X_REGISTER_DISPLAY_TEST, 0x00U);
+  Max721x_WriteRegister(MAX721X_REGISTER_DECODE_MODE, 0x00U);
+  Max721x_WriteRegister(MAX721X_REGISTER_SCAN_LIMIT, 0x07U);
+  Max721x_WriteRegister(MAX721X_REGISTER_INTENSITY,
+                        Max721x_BrightnessToIntensity(brightness));
+
+  for (uint8_t row = 0U; row < 8U; ++row) {
+    Max721x_WriteRegister((uint8_t)(MAX721X_REGISTER_DIGIT0 + row), 0x00U);
+  }
+
+  Max721x_WriteRegister(MAX721X_REGISTER_SHUTDOWN, 0x01U);
 }
 
 static uint16_t ADC_ReadChannel(uint32_t channel) {
@@ -242,7 +301,11 @@ void Board_Init(void) {
   HAL_GPIO_WritePin(DHT11_DATA_GPIO, DHT11_DATA_PIN, GPIO_PIN_SET);
   DHT11_PinInput();
 
+#if DISPLAY_DRIVER_MAX721X_8X8
+  Max721x_Init(DISPLAY_TEST_BRIGHTNESS);
+#else
   ShiftRegister_OutputEnablePwmInit(DISPLAY_TEST_BRIGHTNESS);
+#endif
   Board_WriteDisplay((ClockDisplay_t){0U, 0U});
 }
 
@@ -347,20 +410,34 @@ uint8_t Board_ReadBrightness(void) {
     }
   }
 
+  currentLightLevel = currentLevel;
   brightnessRange = LIGHT_SENSOR_BRIGHTNESS_MAX - LIGHT_SENSOR_BRIGHTNESS_MIN;
   return (uint8_t)(LIGHT_SENSOR_BRIGHTNESS_MIN +
                    (((uint32_t)currentLevel * brightnessRange) / maxLevel));
 }
+
+uint8_t Board_ReadLightLevel(void) { return currentLightLevel; }
 
 void Board_SetBrightness(uint8_t brightness) {
   if (brightness > BRIGHTNESS_MAX) {
     brightness = BRIGHTNESS_MAX;
   }
   currentBrightness = brightness;
+#if DISPLAY_DRIVER_MAX721X_8X8
+  Max721x_WriteRegister(MAX721X_REGISTER_INTENSITY,
+                        Max721x_BrightnessToIntensity(brightness));
+#else
   TIM2->CCR1 = brightness;
+#endif
 }
 
 void Board_WriteDisplay(ClockDisplay_t display) {
+#if DISPLAY_DRIVER_MAX721X_8X8
+  for (uint8_t row = 0U; row < 8U; ++row) {
+    Max721x_WriteRegister((uint8_t)(MAX721X_REGISTER_DIGIT0 + row),
+                          display.rows[row]);
+  }
+#else
   HAL_GPIO_WritePin(SHIFT_REGISTER_LATCH_GPIO, SHIFT_REGISTER_LATCH_PIN,
                     GPIO_PIN_RESET);
 
@@ -379,6 +456,7 @@ void Board_WriteDisplay(ClockDisplay_t display) {
   }
 
   ShiftRegister_Pulse(SHIFT_REGISTER_LATCH_GPIO, SHIFT_REGISTER_LATCH_PIN);
+#endif
 }
 
 void Board_ReadDateTime(ClockDateTime_t *dateTime) {
@@ -397,6 +475,7 @@ void Board_ReadDateTime(ClockDateTime_t *dateTime) {
   dateTime->hours = time.Hours;
   dateTime->day = date.Date;
   dateTime->month = date.Month;
+  dateTime->year = date.Year;
 }
 
 void Board_WriteTime(uint8_t hours, uint8_t minutes, uint8_t seconds) {
@@ -410,13 +489,13 @@ void Board_WriteTime(uint8_t hours, uint8_t minutes, uint8_t seconds) {
   (void)HAL_RTC_SetTime(&hrtc, &time, RTC_FORMAT_BIN);
 }
 
-void Board_WriteDate(uint8_t day, uint8_t month) {
+void Board_WriteDate(uint8_t day, uint8_t month, uint8_t year) {
   RTC_DateTypeDef date = {0};
 
   date.WeekDay = RTC_WEEKDAY_MONDAY;
   date.Month = month;
   date.Date = day;
-  date.Year = 24U;
+  date.Year = (uint8_t)(year % 100U);
   (void)HAL_RTC_SetDate(&hrtc, &date, RTC_FORMAT_BIN);
 }
 
