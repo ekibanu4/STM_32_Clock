@@ -13,9 +13,10 @@ static void ReadEnvironmentSensor(void) {
 
     if (Board_ReadEnvironment(&readEnvironment) != 0U) {
         currentEnvironment = readEnvironment;
+        environmentReadTicks = ENVIRONMENT_READ_TICKS;
+    } else {
+        environmentReadTicks = 1U;
     }
-
-    environmentReadTicks = ENVIRONMENT_READ_TICKS;
 }
 
 void EnvironmentManager_Init(void) {

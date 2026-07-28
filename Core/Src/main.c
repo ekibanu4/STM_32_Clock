@@ -41,9 +41,6 @@
 #define RTC_REFRESH_INTERVAL_MS 1000U
 #define BLINK_INTERVAL_MS 800U
 #define STANDBY_WAKE_GRACE_MS 3000U
-#define BRINGUP_TIME_MODE_MS 30000U
-#define BRINGUP_DATE_MODE_MS 10000U
-#define BRINGUP_ENVIRONMENT_MODE_MS 10000U
 
 /* USER CODE END PD */
 
@@ -69,7 +66,6 @@ static void MX_ADC_Init(void);
 /* USER CODE BEGIN PFP */
 static uint8_t App_RTC_Init(void);
 static uint8_t App_Tick(void);
-static DisplayMode_t App_BringupDisplayMode(uint32_t nowMs);
 
 /* USER CODE END PFP */
 
@@ -327,22 +323,6 @@ static uint8_t App_RTC_Init(void)
   return 1U;
 }
 
-static DisplayMode_t App_BringupDisplayMode(uint32_t nowMs)
-{
-  uint32_t cycleMs =
-      BRINGUP_TIME_MODE_MS + BRINGUP_DATE_MODE_MS + BRINGUP_ENVIRONMENT_MODE_MS;
-  uint32_t cyclePositionMs = nowMs % cycleMs;
-
-  if (cyclePositionMs < BRINGUP_TIME_MODE_MS) {
-    return DISPLAY_TIME;
-  }
-  cyclePositionMs -= BRINGUP_TIME_MODE_MS;
-  if (cyclePositionMs < BRINGUP_DATE_MODE_MS) {
-    return DISPLAY_DATE;
-  }
-  return DISPLAY_ENVIRONMENT;
-}
-
 static uint8_t App_Tick(void)
 {
   static uint32_t lastLoopTick = 0U;
@@ -350,7 +330,6 @@ static uint8_t App_Tick(void)
   static uint32_t lastBlinkTick = 0U;
   static uint8_t blinkOn = 1U;
   uint32_t now = HAL_GetTick();
-  DisplayMode_t displayMode = App_BringupDisplayMode(now);
   ClockDisplay_t display = {0U, 0U};
 
   if ((standbyWakeGraceActive != 0U) &&
@@ -378,7 +357,8 @@ static uint8_t App_Tick(void)
     lastBlinkTick = now;
   }
 
-  UiController_UpdateButton(CLOCK_BUTTON_NONE);
+  UiController_UpdateButton(Board_ReadButton());
+  UiController_UpdateAutoModeCycle();
   EnvironmentManager_Update();
 
   if ((now - lastRtcRefreshTick) >= RTC_REFRESH_INTERVAL_MS) {
@@ -391,13 +371,13 @@ static uint8_t App_Tick(void)
 
   Board_SetBrightness(Board_ReadBrightness());
   display = DisplayRenderer_Build(
-      displayMode, EDIT_NONE,
+      UiController_DisplayMode(), UiController_EditTarget(),
       UiController_DateTime(), EnvironmentManager_Current(),
       AlarmManager_Slots(), AlarmManager_SlotCount(),
       AlarmManager_SelectedSlot(), AlarmManager_AnyEnabled(),
       UiController_AlarmErrorActive(), blinkOn);
   Board_WriteDisplay(display);
-  OledTest_Render(now, displayMode, UiController_DateTime(),
+  OledTest_Render(now, UiController_DisplayMode(), UiController_DateTime(),
                   EnvironmentManager_Current());
 
   return 1U;

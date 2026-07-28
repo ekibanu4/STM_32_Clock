@@ -28,6 +28,8 @@ static uint8_t currentBrightness = DISPLAY_TEST_BRIGHTNESS;
 static ClockEnvironment_t lastEnvironment = {0U, 0U, 0U};
 static uint32_t lastEnvironmentReadMs = 0U;
 static uint8_t aht10Initialized = 0U;
+static uint8_t aht10MeasurePending = 0U;
+static uint32_t aht10MeasureStartMs = 0U;
 static uint32_t lastBrightnessReadMs = 0U;
 static uint8_t bh1750Initialized = 0U;
 
@@ -276,6 +278,7 @@ static uint8_t AHT10_InitSensor(void) {
 }
 
 static uint8_t AHT10_Fail(ClockEnvironment_t *environment) {
+  aht10MeasurePending = 0U;
   environment->temperature = 0U;
   environment->humidity = 0U;
   environment->isValid = 0U;
@@ -566,23 +569,32 @@ uint8_t Board_ReadEnvironment(ClockEnvironment_t *environment) {
   uint32_t humidity;
   int32_t temperatureCx10;
 
-  if (((nowMs - lastEnvironmentReadMs) < AHT10_MIN_READ_INTERVAL_MS) &&
+  if ((aht10MeasurePending == 0U) &&
+      ((nowMs - lastEnvironmentReadMs) < AHT10_MIN_READ_INTERVAL_MS) &&
       (lastEnvironment.isValid != 0U)) {
     *environment = lastEnvironment;
     return 1U;
   }
-  lastEnvironmentReadMs = nowMs;
 
   if ((aht10Initialized == 0U) && (AHT10_InitSensor() == 0U)) {
     return AHT10_Fail(environment);
   }
 
-  if (AHT10_WriteCommand(measureCommand, sizeof(measureCommand)) == 0U) {
-    aht10Initialized = 0U;
-    return AHT10_Fail(environment);
+  if (aht10MeasurePending == 0U) {
+    if (AHT10_WriteCommand(measureCommand, sizeof(measureCommand)) == 0U) {
+      aht10Initialized = 0U;
+      return AHT10_Fail(environment);
+    }
+    aht10MeasurePending = 1U;
+    aht10MeasureStartMs = nowMs;
+    return 0U;
   }
 
-  HAL_Delay(AHT10_MEASURE_DELAY_MS);
+  if ((nowMs - aht10MeasureStartMs) < AHT10_MEASURE_DELAY_MS) {
+    return 0U;
+  }
+  aht10MeasurePending = 0U;
+  lastEnvironmentReadMs = nowMs;
 
   if (AHT10_ReadData(data, sizeof(data)) == 0U) {
     aht10Initialized = 0U;
