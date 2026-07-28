@@ -4,7 +4,7 @@
 #include "app_types.h"
 
 void UiController_Init(void);
-void UiController_UpdateButton(ClockButton_t pressedButton);
+void UiController_UpdateButton(ClockButton_t pressedButton, uint32_t nowMs);
 void UiController_UpdateAutoModeCycle(void);
 void UiController_RefreshDateTime(void);
 

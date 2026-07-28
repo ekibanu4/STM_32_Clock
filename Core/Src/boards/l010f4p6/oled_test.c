@@ -14,6 +14,13 @@
 #define OLED_TIME_PAGE 1U
 #define OLED_MODE_COLUMN 16U
 #define OLED_MODE_PAGE 1U
+#define OLED_ALARM_LABEL_COLUMN 0U
+#define OLED_ALARM_EDIT_COLUMN 10U
+#define OLED_ALARM_EDIT_PAGE 1U
+#define OLED_ALARM_EDIT_STATUS_COLUMN 108U
+#define OLED_ALARM_EDIT_MARK_HOUR_COLUMN 50U
+#define OLED_ALARM_EDIT_MARK_MINUTE_COLUMN 86U
+#define OLED_ALARM_MAX_ROWS 3U
 
 static uint8_t oledAddress = OLED_ADDR_PRIMARY;
 static uint8_t oledReady = 0U;
@@ -168,11 +175,31 @@ static uint8_t Oled_GlyphColumn(char symbol, uint8_t column) {
     static const uint8_t glyph[5] = {0x08U, 0x08U, 0x08U, 0x08U, 0x08U};
     return glyph[column];
   }
+  case '*': {
+    static const uint8_t glyph[5] = {0x14U, 0x08U, 0x3EU, 0x08U, 0x14U};
+    return glyph[column];
+  }
   case ' ': {
     return 0x00U;
   }
+  case 'A': {
+    static const uint8_t glyph[5] = {0x7EU, 0x11U, 0x11U, 0x11U, 0x7EU};
+    return glyph[column];
+  }
+  case 'F': {
+    static const uint8_t glyph[5] = {0x7FU, 0x09U, 0x09U, 0x09U, 0x01U};
+    return glyph[column];
+  }
   case 'H': {
     static const uint8_t glyph[5] = {0x7FU, 0x08U, 0x08U, 0x08U, 0x7FU};
+    return glyph[column];
+  }
+  case 'N': {
+    static const uint8_t glyph[5] = {0x7FU, 0x02U, 0x04U, 0x08U, 0x7FU};
+    return glyph[column];
+  }
+  case 'O': {
+    static const uint8_t glyph[5] = {0x3EU, 0x41U, 0x41U, 0x41U, 0x3EU};
     return glyph[column];
   }
   case 'T': {
@@ -181,6 +208,27 @@ static uint8_t Oled_GlyphColumn(char symbol, uint8_t column) {
   }
   default:
     return 0x00U;
+  }
+}
+
+static void Oled_WriteText(const char *text, uint8_t page, uint8_t column) {
+  uint8_t data[6];
+
+  if (Oled_SetCursor(page, column) == 0U) {
+    return;
+  }
+
+  while (*text != '\0') {
+    for (uint8_t glyphColumn = 0U; glyphColumn < 5U; ++glyphColumn) {
+      data[glyphColumn] = Oled_GlyphColumn(*text, glyphColumn);
+    }
+    data[5] = 0x00U;
+
+    if (Oled_Write(oledAddress, 0x40U, data, sizeof(data)) == 0U) {
+      return;
+    }
+    column = (uint8_t)(column + sizeof(data));
+    ++text;
   }
 }
 
@@ -331,6 +379,107 @@ static void Oled_ShowEnvironment(const ClockEnvironment_t *environment) {
   Oled_WriteScaledText(text, OLED_MODE_PAGE, OLED_MODE_COLUMN);
 }
 
+static uint8_t Oled_IsAlarmEdit(EditTarget_t editTarget) {
+  return ((editTarget == EDIT_ALARM_HOURS) ||
+          (editTarget == EDIT_ALARM_MINUTES))
+             ? 1U
+             : 0U;
+}
+
+static void Oled_FormatAlarmTime(const AlarmSlot_t *slot, uint8_t slotIndex,
+                                 char *text) {
+  text[0] = 'A';
+  text[1] = (char)('1' + slotIndex);
+  text[2] = ' ';
+  if ((slot != 0) && (slot->configured != 0U)) {
+    text[3] = (char)('0' + ((slot->hour / 10U) % 10U));
+    text[4] = (char)('0' + (slot->hour % 10U));
+    text[5] = ':';
+    text[6] = (char)('0' + ((slot->minute / 10U) % 10U));
+    text[7] = (char)('0' + (slot->minute % 10U));
+  } else {
+    text[3] = '-';
+    text[4] = '-';
+    text[5] = ':';
+    text[6] = '-';
+    text[7] = '-';
+  }
+  text[8] = '\0';
+}
+
+static void Oled_FormatAlarmStatus(const AlarmSlot_t *slot, char *text) {
+  if ((slot != 0) && (slot->enabled != 0U)) {
+    text[0] = 'O';
+    text[1] = 'N';
+    text[2] = ' ';
+  } else {
+    text[0] = 'O';
+    text[1] = 'F';
+    text[2] = 'F';
+  }
+  text[3] = '\0';
+}
+
+static void Oled_ShowAlarmSlot(const AlarmSlot_t *slot, uint8_t slotIndex,
+                               uint8_t selected) {
+  char text[14];
+
+  text[0] = (selected != 0U) ? '*' : '-';
+  Oled_FormatAlarmTime(slot, slotIndex, &text[1]);
+  text[9] = ' ';
+  Oled_FormatAlarmStatus(slot, &text[10]);
+
+  Oled_WriteText(text, slotIndex, OLED_ALARM_LABEL_COLUMN);
+}
+
+static void Oled_ShowAlarmEdit(const AlarmSlot_t *alarmSlots,
+                               uint8_t alarmSlotCount,
+                               uint8_t selectedAlarmSlot,
+                               EditTarget_t editTarget) {
+  char timeText[9];
+  char statusText[4];
+
+  if ((selectedAlarmSlot >= alarmSlotCount) ||
+      (selectedAlarmSlot >= OLED_ALARM_MAX_ROWS)) {
+    return;
+  }
+
+  if (editTarget == EDIT_ALARM_HOURS) {
+    Oled_WriteText("..", 0U, OLED_ALARM_EDIT_MARK_HOUR_COLUMN);
+    Oled_WriteText("  ", 0U, OLED_ALARM_EDIT_MARK_MINUTE_COLUMN);
+  } else {
+    Oled_WriteText("  ", 0U, OLED_ALARM_EDIT_MARK_HOUR_COLUMN);
+    Oled_WriteText("..", 0U, OLED_ALARM_EDIT_MARK_MINUTE_COLUMN);
+  }
+
+  Oled_FormatAlarmTime(&alarmSlots[selectedAlarmSlot], selectedAlarmSlot,
+                       timeText);
+  Oled_FormatAlarmStatus(&alarmSlots[selectedAlarmSlot], statusText);
+  Oled_WriteScaledText(timeText, OLED_ALARM_EDIT_PAGE, OLED_ALARM_EDIT_COLUMN);
+  Oled_WriteText(statusText, 3U, OLED_ALARM_EDIT_STATUS_COLUMN);
+}
+
+static void Oled_ShowAlarm(const AlarmSlot_t *alarmSlots, uint8_t alarmSlotCount,
+                           uint8_t selectedAlarmSlot, EditTarget_t editTarget,
+                           uint8_t blinkOn) {
+  uint8_t rows = alarmSlotCount;
+
+  if (Oled_IsAlarmEdit(editTarget) != 0U) {
+    Oled_ShowAlarmEdit(alarmSlots, alarmSlotCount, selectedAlarmSlot,
+                       editTarget);
+    return;
+  }
+
+  if (rows > OLED_ALARM_MAX_ROWS) {
+    rows = OLED_ALARM_MAX_ROWS;
+  }
+
+  for (uint8_t index = 0U; index < rows; ++index) {
+    Oled_ShowAlarmSlot(&alarmSlots[index], index,
+                       (index == selectedAlarmSlot) ? 1U : 0U);
+  }
+}
+
 static uint8_t Oled_Probe(uint8_t address) {
   I2cStart();
   uint8_t ack = I2cWriteByte((uint8_t)(address << 1));
@@ -384,7 +533,10 @@ void OledTest_Init(void) {
 
 void OledTest_Render(uint32_t nowMs, DisplayMode_t displayMode,
                      const ClockDateTime_t *dateTime,
-                     const ClockEnvironment_t *environment) {
+                     const ClockEnvironment_t *environment,
+                     const AlarmSlot_t *alarmSlots, uint8_t alarmSlotCount,
+                     uint8_t selectedAlarmSlot, EditTarget_t editTarget,
+                     uint8_t blinkOn) {
   static uint32_t lastDrawMs = 0xFFFFFFFFUL;
   static DisplayMode_t lastDisplayMode = DISPLAY_ALARM;
   static uint8_t lastSecond = 0xFFU;
@@ -394,8 +546,14 @@ void OledTest_Render(uint32_t nowMs, DisplayMode_t displayMode,
   static uint8_t lastTemperature = 0xFFU;
   static uint8_t lastHumidity = 0xFFU;
   static uint8_t lastEnvironmentValid = 0xFFU;
+  static uint8_t lastSelectedAlarmSlot = 0xFFU;
+  static EditTarget_t lastEditTarget = EDIT_NONE;
+  static AlarmSlot_t lastAlarmSlots[OLED_ALARM_MAX_ROWS];
   uint8_t shouldDraw = 0U;
   uint8_t modeChanged = 0U;
+  DisplayMode_t previousDisplayMode = lastDisplayMode;
+  EditTarget_t previousEditTarget = lastEditTarget;
+  uint8_t alarmEditStateChanged = 0U;
 
   if (oledReady == 0U) {
     return;
@@ -417,6 +575,26 @@ void OledTest_Render(uint32_t nowMs, DisplayMode_t displayMode,
                   (environment->humidity != lastHumidity))
                      ? 1U
                      : 0U;
+  } else if (displayMode == DISPLAY_ALARM) {
+    uint8_t rows = alarmSlotCount;
+
+    if (rows > OLED_ALARM_MAX_ROWS) {
+      rows = OLED_ALARM_MAX_ROWS;
+    }
+
+    shouldDraw =
+        ((selectedAlarmSlot != lastSelectedAlarmSlot) ||
+         (editTarget != lastEditTarget))
+            ? 1U
+            : 0U;
+    for (uint8_t index = 0U; index < rows; ++index) {
+      if ((alarmSlots[index].configured != lastAlarmSlots[index].configured) ||
+          (alarmSlots[index].enabled != lastAlarmSlots[index].enabled) ||
+          (alarmSlots[index].hour != lastAlarmSlots[index].hour) ||
+          (alarmSlots[index].minute != lastAlarmSlots[index].minute)) {
+        shouldDraw = 1U;
+      }
+    }
   }
 
   if (shouldDraw == 0U) {
@@ -436,15 +614,42 @@ void OledTest_Render(uint32_t nowMs, DisplayMode_t displayMode,
   lastTemperature = environment->temperature;
   lastHumidity = environment->humidity;
   lastEnvironmentValid = environment->isValid;
+  lastSelectedAlarmSlot = selectedAlarmSlot;
+  lastEditTarget = editTarget;
+  {
+    uint8_t rows = alarmSlotCount;
 
-  if (modeChanged != 0U) {
-    Oled_ClearTextPages();
+    if (rows > OLED_ALARM_MAX_ROWS) {
+      rows = OLED_ALARM_MAX_ROWS;
+    }
+    for (uint8_t index = 0U; index < rows; ++index) {
+      lastAlarmSlots[index] = alarmSlots[index];
+    }
+  }
+
+  alarmEditStateChanged =
+      ((displayMode == DISPLAY_ALARM) &&
+       (Oled_IsAlarmEdit(editTarget) != Oled_IsAlarmEdit(previousEditTarget)))
+          ? 1U
+          : 0U;
+
+  if ((modeChanged != 0U) || (alarmEditStateChanged != 0U)) {
+    if ((displayMode == DISPLAY_ALARM) ||
+        (previousDisplayMode == DISPLAY_ALARM) ||
+        (Oled_IsAlarmEdit(editTarget) != Oled_IsAlarmEdit(previousEditTarget))) {
+      Oled_Fill(0x00U);
+    } else {
+      Oled_ClearTextPages();
+    }
   }
 
   if (displayMode == DISPLAY_DATE) {
     Oled_ShowDate(dateTime);
   } else if (displayMode == DISPLAY_ENVIRONMENT) {
     Oled_ShowEnvironment(environment);
+  } else if (displayMode == DISPLAY_ALARM) {
+    Oled_ShowAlarm(alarmSlots, alarmSlotCount, selectedAlarmSlot, editTarget,
+                   blinkOn);
   } else {
     Oled_ShowTime(dateTime);
   }

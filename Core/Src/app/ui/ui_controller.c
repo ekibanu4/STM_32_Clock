@@ -11,7 +11,8 @@ static DisplayMode_t displayMode = DISPLAY_TIME;
 static EditTarget_t editTarget = EDIT_NONE;
 static ClockDateTime_t currentDateTime = {0U, 0U, 12U, 1U, 1U, 26U};
 static ClockButton_t lastButton = CLOCK_BUTTON_NONE;
-static uint32_t offButtonHoldTicks = 0U;
+static uint32_t offButtonHoldStartMs = 0U;
+static uint8_t offButtonHoldActive = 0U;
 static uint8_t offLongPressHandled = 0U;
 static uint32_t alarmErrorTicks = 0U;
 
@@ -232,7 +233,6 @@ static void HandleOffButton(void) {
     AlarmManager_StopBuzzer();
     if (displayMode == DISPLAY_ALARM) {
         if (editTarget != EDIT_NONE) {
-            AlarmManager_EnableSelectedSlot();
             editTarget = EDIT_NONE;
             return;
         }
@@ -277,16 +277,17 @@ void UiController_Init(void) {
     UiController_RefreshDateTime();
 }
 
-void UiController_UpdateButton(ClockButton_t pressedButton) {
+void UiController_UpdateButton(ClockButton_t pressedButton, uint32_t nowMs) {
     if (alarmErrorTicks > 0U) {
         --alarmErrorTicks;
     }
 
     if (pressedButton == CLOCK_BUTTON_OFF) {
-        if (offButtonHoldTicks < OFF_LONG_PRESS_TICKS) {
-            ++offButtonHoldTicks;
+        if (offButtonHoldActive == 0U) {
+            offButtonHoldStartMs = nowMs;
+            offButtonHoldActive = 1U;
         }
-        if ((offButtonHoldTicks >= OFF_LONG_PRESS_TICKS) &&
+        if (((uint32_t)(nowMs - offButtonHoldStartMs) >= OFF_LONG_PRESS_MS) &&
             (offLongPressHandled == 0U)) {
             AutoModeScheduler_PauseForUserActivity();
             AlarmManager_ToggleAll();
@@ -297,7 +298,7 @@ void UiController_UpdateButton(ClockButton_t pressedButton) {
         if ((lastButton == CLOCK_BUTTON_OFF) && (offLongPressHandled == 0U)) {
             HandleButton(CLOCK_BUTTON_OFF);
         }
-        offButtonHoldTicks = 0U;
+        offButtonHoldActive = 0U;
         offLongPressHandled = 0U;
     }
 

@@ -332,6 +332,8 @@ static uint8_t App_Tick(void)
   uint32_t now = HAL_GetTick();
   ClockDisplay_t display = {0U, 0U};
 
+  UiController_UpdateButton(Board_ReadButton(), now);
+
   if ((standbyWakeGraceActive != 0U) &&
       ((now - standbyWakeGraceStartMs) >= STANDBY_WAKE_GRACE_MS)) {
     standbyWakeGraceActive = 0U;
@@ -357,7 +359,6 @@ static uint8_t App_Tick(void)
     lastBlinkTick = now;
   }
 
-  UiController_UpdateButton(Board_ReadButton());
   UiController_UpdateAutoModeCycle();
   EnvironmentManager_Update();
 
@@ -378,7 +379,9 @@ static uint8_t App_Tick(void)
       UiController_AlarmErrorActive(), blinkOn);
   Board_WriteDisplay(display);
   OledTest_Render(now, UiController_DisplayMode(), UiController_DateTime(),
-                  EnvironmentManager_Current());
+                  EnvironmentManager_Current(), AlarmManager_Slots(),
+                  AlarmManager_SlotCount(), AlarmManager_SelectedSlot(),
+                  UiController_EditTarget(), blinkOn);
 
   return 1U;
 }

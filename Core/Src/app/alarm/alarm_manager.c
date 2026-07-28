@@ -229,23 +229,35 @@ void AlarmManager_SelectPreviousSlot(void) {
 }
 
 void AlarmManager_IncrementSelectedHour(void) {
+    alarmSlots[selectedAlarmSlot].configured = 1U;
     alarmSlots[selectedAlarmSlot].hour =
         IncrementWrap(alarmSlots[selectedAlarmSlot].hour, 0U, 23U);
+    SaveAlarmsToRtcRam();
+    ClearLastAlarmTrigger();
 }
 
 void AlarmManager_DecrementSelectedHour(void) {
+    alarmSlots[selectedAlarmSlot].configured = 1U;
     alarmSlots[selectedAlarmSlot].hour =
         DecrementWrap(alarmSlots[selectedAlarmSlot].hour, 0U, 23U);
+    SaveAlarmsToRtcRam();
+    ClearLastAlarmTrigger();
 }
 
 void AlarmManager_IncrementSelectedMinute(void) {
+    alarmSlots[selectedAlarmSlot].configured = 1U;
     alarmSlots[selectedAlarmSlot].minute =
         IncrementWrap(alarmSlots[selectedAlarmSlot].minute, 0U, 59U);
+    SaveAlarmsToRtcRam();
+    ClearLastAlarmTrigger();
 }
 
 void AlarmManager_DecrementSelectedMinute(void) {
+    alarmSlots[selectedAlarmSlot].configured = 1U;
     alarmSlots[selectedAlarmSlot].minute =
         DecrementWrap(alarmSlots[selectedAlarmSlot].minute, 0U, 59U);
+    SaveAlarmsToRtcRam();
+    ClearLastAlarmTrigger();
 }
 
 void AlarmManager_EnableSelectedSlot(void) {
