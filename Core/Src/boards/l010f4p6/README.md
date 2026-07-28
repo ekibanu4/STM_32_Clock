@@ -14,8 +14,9 @@ The CubeMX project is `l010f4p6.ioc`.
 | PA4 | 74HC595 SRCLK / SH_CP | Shift-register shift clock, pin 11 |
 | PA5 | 74HC595 OE / TIM2_CH1 | Active-low output enable PWM, pin 13 |
 | PA6 | Light ADC | LDR/light sensor input, `ADC_IN6` |
-| PA7 | DHT11 DATA | Temperature/humidity single-wire data |
-| PA9 | Buzzer control | Active buzzer transistor drive |
+| PA7 | Free | Previously used for DHT11 DATA |
+| PA9 | I2C SCL | Software I2C clock for OLED and AHT10 |
+| PA10 | I2C SDA | Software I2C data for OLED and AHT10 |
 | PB1 | Main power sense ADC | Main VDD sense, `ADC_IN9` |
 | PC14 | LSE OSC32_IN | 32.768 kHz crystal |
 | PC15 | LSE OSC32_OUT | 32.768 kHz crystal |
@@ -52,21 +53,24 @@ Current thresholds:
 
 Values above `3360` are treated as no button.
 
-## DHT11 Environment Sensor
+## I2C OLED / AHT10 Bus
 
-The DHT11 data line is connected to `PA7`. CubeMX does not need a fixed pin
-mode for this line because firmware switches it between open-drain output for
-the start pulse and input for the sensor response.
+The experimental I2C branch uses a software I2C bus:
 
-Use a pull-up on DATA to 3.3V. A ready-made DHT11 module may already include
-this pull-up; a bare sensor usually needs an external resistor around
-`4.7k-10k`.
+| MCU pin | I2C signal |
+| --- | --- |
+| PA9 | SCL / SCK |
+| PA10 | SDA |
 
-The firmware waits a short startup delay before the first read and then polls
-the DHT11 no faster than once every 2 seconds. The bit decoder follows the
-older working driver style: it measures each low/high pulse pair and treats the
-bit as `1` when the high pulse is longer than the low pulse. This is more
-stable on the low-clocked L010 than sampling at a fixed microsecond offset.
+The 0.91" 128x32 OLED is probed at `0x3C`, then `0x3D`. The AHT10
+temperature/humidity sensor uses address `0x38`. Both lines are configured as
+open-drain GPIO with pull-ups enabled in firmware; external pull-ups are still
+recommended for a stable bus.
+
+The firmware initializes AHT10 with `0xE1 0x08 0x00`, triggers a measurement
+with `0xAC 0x33 0x00`, waits about 80 ms, then reads 6 bytes and converts the
+20-bit humidity and temperature values. Reads are throttled to no faster than
+once every 2 seconds.
 
 In environment display mode, the top/six-hour LEDs show temperature as a binary
 number. The lower humidity LEDs are a scale, not a binary value:
@@ -103,8 +107,9 @@ Current brightness calibration:
 
 ## Active Buzzer
 
-`PA9` drives the active buzzer through a transistor. The buzzer input is active
-high from firmware: `PA9 = 1` turns the buzzer on, `PA9 = 0` turns it off.
+The active buzzer is disabled in this I2C/OLED experimental branch because
+`PA9` is used as I2C SCL. Move the buzzer to another free pin before enabling
+alarm sound again.
 
 ## Alarms
 

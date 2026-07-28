@@ -10,11 +10,11 @@
 #define ADC_FULL_SCALE 4095U
 #define MAIN_POWER_CONFIRM_SAMPLES 3U
 #define MAIN_POWER_WAKEUP_LOW_WAIT_MS 100U
-#define DHT11_TIMEOUT 0xFFFFFFFFUL
-#define DHT11_MIN_READ_INTERVAL_MS 2000UL
-#define DHT11_START_LOW_MS 20U
-#define DHT11_PULL_TIME_US 55U
-#define DHT11_MAX_PULSE_LOOPS 10000U
+#define AHT10_ADDRESS 0x38U
+#define AHT10_MIN_READ_INTERVAL_MS 2000UL
+#define AHT10_INIT_DELAY_MS 40U
+#define AHT10_MEASURE_DELAY_MS 80U
+#define AHT10_STATUS_BUSY 0x80U
 
 extern ADC_HandleTypeDef hadc;
 extern RTC_HandleTypeDef hrtc;
@@ -22,6 +22,7 @@ extern RTC_HandleTypeDef hrtc;
 static uint8_t currentBrightness = DISPLAY_TEST_BRIGHTNESS;
 static ClockEnvironment_t lastEnvironment = {0U, 0U, 0U};
 static uint32_t lastEnvironmentReadMs = 0U;
+static uint8_t aht10Initialized = 0U;
 
 static volatile uint32_t *AlarmStorage_BackupRegister(uint8_t registerIndex) {
   switch (registerIndex) {
@@ -35,39 +36,6 @@ static volatile uint32_t *AlarmStorage_BackupRegister(uint8_t registerIndex) {
     return &RTC->BKP3R;
   default:
     return &RTC->BKP4R;
-  }
-}
-
-static void Board_DelayCycles(volatile uint32_t cycles) {
-  while (cycles > 0U) {
-    --cycles;
-  }
-}
-
-static void Board_DelayUs(uint32_t microseconds) {
-  uint32_t cyclesPerUs = SystemCoreClock / 1000000UL;
-  uint32_t waitTicks = microseconds * cyclesPerUs;
-  uint32_t reload = SysTick->LOAD;
-  uint32_t start = SysTick->VAL;
-  uint32_t elapsed = 0U;
-
-  if ((cyclesPerUs == 0U) ||
-      ((SysTick->CTRL & SysTick_CTRL_ENABLE_Msk) == 0U)) {
-    while (microseconds > 0U) {
-      Board_DelayCycles(8U);
-      --microseconds;
-    }
-    return;
-  }
-
-  while (elapsed < waitTicks) {
-    uint32_t current = SysTick->VAL;
-
-    if (start >= current) {
-      elapsed = start - current;
-    } else {
-      elapsed = start + (reload - current) + 1U;
-    }
   }
 }
 
@@ -147,44 +115,151 @@ static uint16_t MainPower_ReadSenseMv(void) {
   return (uint16_t)(((uint32_t)senseRaw * vddaMv) / ADC_FULL_SCALE);
 }
 
-static void DHT11_PinInput(void) {
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
-
-  GPIO_InitStruct.Pin = DHT11_DATA_PIN;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(DHT11_DATA_GPIO, &GPIO_InitStruct);
+static void AHT10_I2cDelay(void) {
+  for (volatile uint8_t index = 0U; index < 20U; ++index) {
+  }
 }
 
-static void DHT11_PinOutput(void) {
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
-
-  GPIO_InitStruct.Pin = DHT11_DATA_PIN;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(DHT11_DATA_GPIO, &GPIO_InitStruct);
+static void AHT10_SclHigh(void) {
+  HAL_GPIO_WritePin(AHT10_I2C_SCL_GPIO, AHT10_I2C_SCL_PIN, GPIO_PIN_SET);
+  AHT10_I2cDelay();
 }
 
-static GPIO_PinState DHT11_ReadPinFast(void) {
-  return ((DHT11_DATA_GPIO->IDR & DHT11_DATA_PIN) != 0U) ? GPIO_PIN_SET
-                                                          : GPIO_PIN_RESET;
+static void AHT10_SclLow(void) {
+  HAL_GPIO_WritePin(AHT10_I2C_SCL_GPIO, AHT10_I2C_SCL_PIN, GPIO_PIN_RESET);
+  AHT10_I2cDelay();
 }
 
-static uint32_t DHT11_CountPulse(GPIO_PinState level) {
-  uint32_t count = 0U;
+static void AHT10_SdaHigh(void) {
+  HAL_GPIO_WritePin(AHT10_I2C_SDA_GPIO, AHT10_I2C_SDA_PIN, GPIO_PIN_SET);
+  AHT10_I2cDelay();
+}
 
-  while (DHT11_ReadPinFast() == level) {
-    ++count;
-    if (count >= DHT11_MAX_PULSE_LOOPS) {
-      return DHT11_TIMEOUT;
+static void AHT10_SdaLow(void) {
+  HAL_GPIO_WritePin(AHT10_I2C_SDA_GPIO, AHT10_I2C_SDA_PIN, GPIO_PIN_RESET);
+  AHT10_I2cDelay();
+}
+
+static GPIO_PinState AHT10_SdaRead(void) {
+  return HAL_GPIO_ReadPin(AHT10_I2C_SDA_GPIO, AHT10_I2C_SDA_PIN);
+}
+
+static void AHT10_I2cStart(void) {
+  AHT10_SdaHigh();
+  AHT10_SclHigh();
+  AHT10_SdaLow();
+  AHT10_SclLow();
+}
+
+static void AHT10_I2cStop(void) {
+  AHT10_SdaLow();
+  AHT10_SclHigh();
+  AHT10_SdaHigh();
+}
+
+static uint8_t AHT10_I2cWriteByte(uint8_t value) {
+  for (uint8_t bit = 0U; bit < 8U; ++bit) {
+    if ((value & 0x80U) != 0U) {
+      AHT10_SdaHigh();
+    } else {
+      AHT10_SdaLow();
     }
+    AHT10_SclHigh();
+    AHT10_SclLow();
+    value <<= 1;
   }
 
-  return count;
+  AHT10_SdaHigh();
+  AHT10_SclHigh();
+  uint8_t ack = (AHT10_SdaRead() == GPIO_PIN_RESET) ? 1U : 0U;
+  AHT10_SclLow();
+  return ack;
 }
 
-static uint8_t DHT11_Fail(ClockEnvironment_t *environment) {
+static uint8_t AHT10_I2cReadByte(uint8_t ack) {
+  uint8_t value = 0U;
+
+  AHT10_SdaHigh();
+  for (uint8_t bit = 0U; bit < 8U; ++bit) {
+    value <<= 1U;
+    AHT10_SclHigh();
+    if (AHT10_SdaRead() == GPIO_PIN_SET) {
+      value |= 1U;
+    }
+    AHT10_SclLow();
+  }
+
+  if (ack != 0U) {
+    AHT10_SdaLow();
+  } else {
+    AHT10_SdaHigh();
+  }
+  AHT10_SclHigh();
+  AHT10_SclLow();
+  AHT10_SdaHigh();
+  return value;
+}
+
+static uint8_t AHT10_WriteCommand(const uint8_t *data, uint8_t size) {
+  AHT10_I2cStart();
+  if (AHT10_I2cWriteByte((uint8_t)(AHT10_ADDRESS << 1U)) == 0U) {
+    AHT10_I2cStop();
+    return 0U;
+  }
+  for (uint8_t index = 0U; index < size; ++index) {
+    if (AHT10_I2cWriteByte(data[index]) == 0U) {
+      AHT10_I2cStop();
+      return 0U;
+    }
+  }
+  AHT10_I2cStop();
+  return 1U;
+}
+
+static uint8_t AHT10_ReadData(uint8_t *data, uint8_t size) {
+  AHT10_I2cStart();
+  if (AHT10_I2cWriteByte((uint8_t)((AHT10_ADDRESS << 1U) | 1U)) == 0U) {
+    AHT10_I2cStop();
+    return 0U;
+  }
+  for (uint8_t index = 0U; index < size; ++index) {
+    data[index] = AHT10_I2cReadByte((index + 1U) < size);
+  }
+  AHT10_I2cStop();
+  return 1U;
+}
+
+static void AHT10_GpioInit(void) {
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+  __HAL_RCC_GPIOA_CLK_ENABLE();
+
+  GPIO_InitStruct.Pin = AHT10_I2C_SCL_PIN | AHT10_I2C_SDA_PIN;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
+  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  HAL_GPIO_WritePin(GPIOA, AHT10_I2C_SCL_PIN | AHT10_I2C_SDA_PIN,
+                    GPIO_PIN_SET);
+}
+
+static uint8_t AHT10_InitSensor(void) {
+  static const uint8_t initCommand[3] = {0xE1U, 0x08U, 0x00U};
+
+  AHT10_GpioInit();
+  HAL_Delay(AHT10_INIT_DELAY_MS);
+
+  if (AHT10_WriteCommand(initCommand, sizeof(initCommand)) == 0U) {
+    return 0U;
+  }
+
+  HAL_Delay(AHT10_INIT_DELAY_MS);
+  aht10Initialized = 1U;
+  return 1U;
+}
+
+static uint8_t AHT10_Fail(ClockEnvironment_t *environment) {
   environment->temperature = 0U;
   environment->humidity = 0U;
   environment->isValid = 0U;
@@ -225,13 +300,6 @@ void Board_Init(void) {
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  HAL_GPIO_WritePin(BUZZER_GPIO, BUZZER_PIN, GPIO_PIN_RESET);
-  GPIO_InitStruct.Pin = BUZZER_PIN;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(BUZZER_GPIO, &GPIO_InitStruct);
-
   HAL_GPIO_WritePin(SHIFT_REGISTER_DATA_GPIO, SHIFT_REGISTER_DATA_PIN,
                     GPIO_PIN_RESET);
   HAL_GPIO_WritePin(SHIFT_REGISTER_CLOCK_GPIO, SHIFT_REGISTER_CLOCK_PIN,
@@ -239,8 +307,7 @@ void Board_Init(void) {
   HAL_GPIO_WritePin(SHIFT_REGISTER_LATCH_GPIO, SHIFT_REGISTER_LATCH_PIN,
                     GPIO_PIN_RESET);
 
-  HAL_GPIO_WritePin(DHT11_DATA_GPIO, DHT11_DATA_PIN, GPIO_PIN_SET);
-  DHT11_PinInput();
+  AHT10_GpioInit();
 
   ShiftRegister_OutputEnablePwmInit(DISPLAY_TEST_BRIGHTNESS);
   Board_WriteDisplay((ClockDisplay_t){0U, 0U});
@@ -422,71 +489,64 @@ void Board_WriteDate(uint8_t day, uint8_t month, uint8_t year) {
 }
 
 uint8_t Board_ReadEnvironment(ClockEnvironment_t *environment) {
-  uint8_t data[5] = {0U, 0U, 0U, 0U, 0U};
+  static const uint8_t measureCommand[3] = {0xACU, 0x33U, 0x00U};
+  uint8_t data[6] = {0U, 0U, 0U, 0U, 0U, 0U};
   uint32_t nowMs = HAL_GetTick();
-  uint32_t lowCount;
-  uint32_t highCount;
+  uint32_t humidityRaw;
+  uint32_t temperatureRaw;
+  uint32_t humidity;
+  int32_t temperatureCx10;
 
-  if (((nowMs - lastEnvironmentReadMs) < DHT11_MIN_READ_INTERVAL_MS) &&
+  if (((nowMs - lastEnvironmentReadMs) < AHT10_MIN_READ_INTERVAL_MS) &&
       (lastEnvironment.isValid != 0U)) {
     *environment = lastEnvironment;
     return 1U;
   }
   lastEnvironmentReadMs = nowMs;
 
-  DHT11_PinInput();
-  HAL_Delay(1U);
-
-  HAL_GPIO_WritePin(DHT11_DATA_GPIO, DHT11_DATA_PIN, GPIO_PIN_RESET);
-  DHT11_PinOutput();
-  HAL_Delay(DHT11_START_LOW_MS);
-  DHT11_PinInput();
-  Board_DelayUs(DHT11_PULL_TIME_US);
-
-  __disable_irq();
-
-  if (DHT11_ReadPinFast() == GPIO_PIN_SET) {
-    __enable_irq();
-    return DHT11_Fail(environment);
+  if ((aht10Initialized == 0U) && (AHT10_InitSensor() == 0U)) {
+    return AHT10_Fail(environment);
   }
 
-  if (DHT11_CountPulse(GPIO_PIN_RESET) == DHT11_TIMEOUT) {
-    __enable_irq();
-    return DHT11_Fail(environment);
+  if (AHT10_WriteCommand(measureCommand, sizeof(measureCommand)) == 0U) {
+    aht10Initialized = 0U;
+    return AHT10_Fail(environment);
   }
 
-  if (DHT11_CountPulse(GPIO_PIN_SET) == DHT11_TIMEOUT) {
-    __enable_irq();
-    return DHT11_Fail(environment);
+  HAL_Delay(AHT10_MEASURE_DELAY_MS);
+
+  if (AHT10_ReadData(data, sizeof(data)) == 0U) {
+    aht10Initialized = 0U;
+    return AHT10_Fail(environment);
   }
 
-  for (uint8_t bitIndex = 0U; bitIndex < 40U; ++bitIndex) {
-    lowCount = DHT11_CountPulse(GPIO_PIN_RESET);
-    if (lowCount == DHT11_TIMEOUT) {
-      __enable_irq();
-      return DHT11_Fail(environment);
-    }
-
-    highCount = DHT11_CountPulse(GPIO_PIN_SET);
-    if (highCount == DHT11_TIMEOUT) {
-      __enable_irq();
-      return DHT11_Fail(environment);
-    }
-
-    data[bitIndex / 8U] <<= 1U;
-    if (highCount > lowCount) {
-      data[bitIndex / 8U] |= 1U;
-    }
+  if ((data[0] & AHT10_STATUS_BUSY) != 0U) {
+    return AHT10_Fail(environment);
   }
 
-  __enable_irq();
+  humidityRaw =
+      (((uint32_t)data[1]) << 12U) | (((uint32_t)data[2]) << 4U) |
+      (((uint32_t)data[3]) >> 4U);
+  temperatureRaw = ((((uint32_t)data[3]) & 0x0FU) << 16U) |
+                   (((uint32_t)data[4]) << 8U) | data[5];
 
-  if (data[4] != (uint8_t)(data[0] + data[1] + data[2] + data[3])) {
-    return DHT11_Fail(environment);
+  humidity = ((humidityRaw * 100U) + 524288U) >> 20U;
+  if (humidity > 100U) {
+    humidity = 100U;
   }
 
-  environment->humidity = data[0];
-  environment->temperature = data[2];
+  temperatureCx10 =
+      (int32_t)(((temperatureRaw * 2000U) + 524288U) >> 20U) - 500;
+  if (temperatureCx10 < 0) {
+    temperatureCx10 = 0;
+  }
+  temperatureCx10 = (temperatureCx10 + 5) / 10;
+  if (temperatureCx10 > 99) {
+    temperatureCx10 = 99;
+  }
+
+  environment->humidity = (uint8_t)humidity;
+  environment->temperature = (uint8_t)temperatureCx10;
   environment->isValid = 1U;
   lastEnvironment = *environment;
   return 1U;
@@ -547,8 +607,7 @@ void Board_WriteAlarmStorage(const uint8_t *data, uint8_t size) {
 }
 
 void Board_SetBuzzer(uint8_t isEnabled) {
-  HAL_GPIO_WritePin(BUZZER_GPIO, BUZZER_PIN,
-                    (isEnabled != 0U) ? GPIO_PIN_SET : GPIO_PIN_RESET);
+  (void)isEnabled;
 }
 
 void Board_DelayLoop(void) {

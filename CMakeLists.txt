@@ -50,6 +50,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     Core/Src/app/ui/auto_mode_scheduler.c
     Core/Src/app/ui/ui_controller.c
     Core/Src/boards/l010f4p6/board.c
+    Core/Src/boards/l010f4p6/oled_test.c
     Drivers/STM32L0xx_HAL_Driver/Src/stm32l0xx_hal_rtc.c
 )
 

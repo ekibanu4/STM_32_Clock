@@ -25,6 +25,7 @@
 #include "board.h"
 #include "display_renderer.h"
 #include "environment_manager.h"
+#include "oled_test.h"
 #include "ui_controller.h"
 
 /* USER CODE END Includes */
@@ -40,6 +41,9 @@
 #define RTC_REFRESH_INTERVAL_MS 1000U
 #define BLINK_INTERVAL_MS 800U
 #define STANDBY_WAKE_GRACE_MS 3000U
+#define BRINGUP_TIME_MODE_MS 30000U
+#define BRINGUP_DATE_MODE_MS 10000U
+#define BRINGUP_ENVIRONMENT_MODE_MS 10000U
 
 /* USER CODE END PD */
 
@@ -63,8 +67,9 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_ADC_Init(void);
 /* USER CODE BEGIN PFP */
-static void App_RTC_Init(void);
+static uint8_t App_RTC_Init(void);
 static uint8_t App_Tick(void);
+static DisplayMode_t App_BringupDisplayMode(uint32_t nowMs);
 
 /* USER CODE END PFP */
 
@@ -104,7 +109,9 @@ int main(void)
   MX_GPIO_Init();
   MX_ADC_Init();
   /* USER CODE BEGIN 2 */
-  App_RTC_Init();
+  (void)App_RTC_Init();
+  Board_Init();
+  OledTest_Init();
 
   if (__HAL_PWR_GET_FLAG(PWR_FLAG_SB) != RESET) {
     standbyWakeGraceActive = 1U;
@@ -113,7 +120,6 @@ int main(void)
     __HAL_PWR_CLEAR_FLAG(PWR_FLAG_WU);
   }
 
-  Board_Init();
   UiController_Init();
   AlarmManager_Init();
   EnvironmentManager_Init();
@@ -152,7 +158,7 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_MSI;
   RCC_OscInitStruct.MSIState = RCC_MSI_ON;
   RCC_OscInitStruct.MSICalibrationValue = 0;
-  RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_5;
+  RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_6;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
@@ -287,20 +293,28 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-static void App_RTC_Init(void)
+static uint8_t App_RTC_Init(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
 
   HAL_PWR_EnableBkUpAccess();
-  __HAL_RCC_LSEDRIVE_CONFIG(RCC_LSEDRIVE_LOW);
+
+  if (__HAL_RCC_GET_RTC_SOURCE() != RCC_RTCCLKSOURCE_LSE) {
+    __HAL_RCC_BACKUPRESET_FORCE();
+    __HAL_RCC_BACKUPRESET_RELEASE();
+  }
+
+  __HAL_RCC_LSEDRIVE_CONFIG(RCC_LSEDRIVE_HIGH);
+
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_LSE;
+  RCC_OscInitStruct.LSEState = RCC_LSE_ON;
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+  {
+    return 0U;
+  }
 
   if (__HAL_RCC_GET_FLAG(RCC_FLAG_LSERDY) == RESET) {
-    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_LSE;
-    RCC_OscInitStruct.LSEState = RCC_LSE_ON;
-    if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-    {
-      return;
-    }
+    return 0U;
   }
 
   __HAL_RCC_RTC_CONFIG(RCC_RTCCLKSOURCE_LSE);
@@ -315,8 +329,26 @@ static void App_RTC_Init(void)
   hrtc.Init.OutPutType = RTC_OUTPUT_TYPE_OPENDRAIN;
   if (HAL_RTC_Init(&hrtc) != HAL_OK)
   {
-    return;
+    return 0U;
   }
+
+  return 1U;
+}
+
+static DisplayMode_t App_BringupDisplayMode(uint32_t nowMs)
+{
+  uint32_t cycleMs =
+      BRINGUP_TIME_MODE_MS + BRINGUP_DATE_MODE_MS + BRINGUP_ENVIRONMENT_MODE_MS;
+  uint32_t cyclePositionMs = nowMs % cycleMs;
+
+  if (cyclePositionMs < BRINGUP_TIME_MODE_MS) {
+    return DISPLAY_TIME;
+  }
+  cyclePositionMs -= BRINGUP_TIME_MODE_MS;
+  if (cyclePositionMs < BRINGUP_DATE_MODE_MS) {
+    return DISPLAY_DATE;
+  }
+  return DISPLAY_ENVIRONMENT;
 }
 
 static uint8_t App_Tick(void)
@@ -326,6 +358,7 @@ static uint8_t App_Tick(void)
   static uint32_t lastBlinkTick = 0U;
   static uint8_t blinkOn = 1U;
   uint32_t now = HAL_GetTick();
+  DisplayMode_t displayMode = App_BringupDisplayMode(now);
   ClockDisplay_t display = {0U, 0U};
 
   if ((standbyWakeGraceActive != 0U) &&
@@ -333,9 +366,15 @@ static uint8_t App_Tick(void)
     standbyWakeGraceActive = 0U;
   }
 
+  /*
+   * The OLED/I2C bring-up board does not always have main-power sense wired.
+   * Keep standby disabled while the display modes are being tested.
+   */
+  /*
   if ((standbyWakeGraceActive == 0U) && (Board_IsMainPowerPresent() == 0U)) {
     Board_EnterStandby();
   }
+  */
 
   if ((now - lastLoopTick) < MAIN_LOOP_DELAY_MS) {
     return 0U;
@@ -347,8 +386,7 @@ static uint8_t App_Tick(void)
     lastBlinkTick = now;
   }
 
-  UiController_UpdateButton(Board_ReadButton());
-  UiController_UpdateAutoModeCycle();
+  UiController_UpdateButton(CLOCK_BUTTON_NONE);
   EnvironmentManager_Update();
 
   if ((now - lastRtcRefreshTick) >= RTC_REFRESH_INTERVAL_MS) {
@@ -361,12 +399,14 @@ static uint8_t App_Tick(void)
 
   Board_SetBrightness(Board_ReadBrightness());
   display = DisplayRenderer_Build(
-      UiController_DisplayMode(), UiController_EditTarget(),
+      displayMode, EDIT_NONE,
       UiController_DateTime(), EnvironmentManager_Current(),
       AlarmManager_Slots(), AlarmManager_SlotCount(),
       AlarmManager_SelectedSlot(), AlarmManager_AnyEnabled(),
       UiController_AlarmErrorActive(), blinkOn);
   Board_WriteDisplay(display);
+  OledTest_Render(now, displayMode, UiController_DateTime(),
+                  EnvironmentManager_Current());
 
   return 1U;
 }
