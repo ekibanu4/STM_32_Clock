@@ -164,6 +164,7 @@ void AlarmManager_UpdateTrigger(const ClockDateTime_t *dateTime) {
         (dateTime->minutes == lastAlarmTriggerMinute)) {
         return;
     }
+    ClearLastAlarmTrigger();
 
     for (uint8_t slotIndex = 0U; slotIndex < ALARM_SLOT_COUNT; ++slotIndex) {
         AlarmSlot_t *slot = &alarmSlots[slotIndex];
