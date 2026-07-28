@@ -330,9 +330,11 @@ static uint8_t App_Tick(void)
   static uint32_t lastBlinkTick = 0U;
   static uint8_t blinkOn = 1U;
   uint32_t now = HAL_GetTick();
+  ClockButton_t button = CLOCK_BUTTON_NONE;
   ClockDisplay_t display = {0U, 0U};
 
-  UiController_UpdateButton(Board_ReadButton(), now);
+  button = Board_ReadButton();
+  UiController_UpdateButton(button, now);
 
   if ((standbyWakeGraceActive != 0U) &&
       ((now - standbyWakeGraceStartMs) >= STANDBY_WAKE_GRACE_MS)) {
@@ -378,10 +380,12 @@ static uint8_t App_Tick(void)
       AlarmManager_SelectedSlot(), AlarmManager_AnyEnabled(),
       UiController_AlarmErrorActive(), blinkOn);
   Board_WriteDisplay(display);
-  OledTest_Render(now, UiController_DisplayMode(), UiController_DateTime(),
-                  EnvironmentManager_Current(), AlarmManager_Slots(),
-                  AlarmManager_SlotCount(), AlarmManager_SelectedSlot(),
-                  UiController_EditTarget(), blinkOn);
+  if (button == CLOCK_BUTTON_NONE) {
+    OledTest_Render(now, UiController_DisplayMode(), UiController_DateTime(),
+                    EnvironmentManager_Current(), AlarmManager_Slots(),
+                    AlarmManager_SlotCount(), AlarmManager_SelectedSlot(),
+                    UiController_EditTarget(), blinkOn);
+  }
 
   return 1U;
 }

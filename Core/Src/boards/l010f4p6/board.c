@@ -20,6 +20,7 @@
 #define BH1750_RESET 0x07U
 #define BH1750_CONT_HIGH_RES_MODE 0x10U
 #define BH1750_READ_INTERVAL_MS 1000U
+#define BOARD_I2C_DELAY_CYCLES 8U
 
 extern ADC_HandleTypeDef hadc;
 extern RTC_HandleTypeDef hrtc;
@@ -125,7 +126,7 @@ static uint16_t MainPower_ReadSenseMv(void) {
 }
 
 static void BoardI2c_Delay(void) {
-  for (volatile uint8_t index = 0U; index < 20U; ++index) {
+  for (volatile uint8_t index = 0U; index < BOARD_I2C_DELAY_CYCLES; ++index) {
   }
 }
 

@@ -21,12 +21,13 @@
 #define OLED_ALARM_EDIT_MARK_HOUR_COLUMN 50U
 #define OLED_ALARM_EDIT_MARK_MINUTE_COLUMN 86U
 #define OLED_ALARM_MAX_ROWS 3U
+#define OLED_I2C_DELAY_CYCLES 8U
 
 static uint8_t oledAddress = OLED_ADDR_PRIMARY;
 static uint8_t oledReady = 0U;
 
 static void I2cDelay(void) {
-  for (volatile uint8_t index = 0U; index < 20U; ++index) {
+  for (volatile uint8_t index = 0U; index < OLED_I2C_DELAY_CYCLES; ++index) {
   }
 }
 
