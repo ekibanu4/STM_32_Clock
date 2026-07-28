@@ -15,6 +15,11 @@
 #define AHT10_INIT_DELAY_MS 40U
 #define AHT10_MEASURE_DELAY_MS 80U
 #define AHT10_STATUS_BUSY 0x80U
+#define BH1750_ADDRESS 0x23U
+#define BH1750_POWER_ON 0x01U
+#define BH1750_RESET 0x07U
+#define BH1750_CONT_HIGH_RES_MODE 0x10U
+#define BH1750_READ_INTERVAL_MS 1000U
 
 extern ADC_HandleTypeDef hadc;
 extern RTC_HandleTypeDef hrtc;
@@ -23,6 +28,8 @@ static uint8_t currentBrightness = DISPLAY_TEST_BRIGHTNESS;
 static ClockEnvironment_t lastEnvironment = {0U, 0U, 0U};
 static uint32_t lastEnvironmentReadMs = 0U;
 static uint8_t aht10Initialized = 0U;
+static uint32_t lastBrightnessReadMs = 0U;
+static uint8_t bh1750Initialized = 0U;
 
 static volatile uint32_t *AlarmStorage_BackupRegister(uint8_t registerIndex) {
   switch (registerIndex) {
@@ -115,139 +122,148 @@ static uint16_t MainPower_ReadSenseMv(void) {
   return (uint16_t)(((uint32_t)senseRaw * vddaMv) / ADC_FULL_SCALE);
 }
 
-static void AHT10_I2cDelay(void) {
+static void BoardI2c_Delay(void) {
   for (volatile uint8_t index = 0U; index < 20U; ++index) {
   }
 }
 
-static void AHT10_SclHigh(void) {
-  HAL_GPIO_WritePin(AHT10_I2C_SCL_GPIO, AHT10_I2C_SCL_PIN, GPIO_PIN_SET);
-  AHT10_I2cDelay();
+static void BoardI2c_SclHigh(void) {
+  HAL_GPIO_WritePin(BOARD_I2C_SCL_GPIO, BOARD_I2C_SCL_PIN, GPIO_PIN_SET);
+  BoardI2c_Delay();
 }
 
-static void AHT10_SclLow(void) {
-  HAL_GPIO_WritePin(AHT10_I2C_SCL_GPIO, AHT10_I2C_SCL_PIN, GPIO_PIN_RESET);
-  AHT10_I2cDelay();
+static void BoardI2c_SclLow(void) {
+  HAL_GPIO_WritePin(BOARD_I2C_SCL_GPIO, BOARD_I2C_SCL_PIN, GPIO_PIN_RESET);
+  BoardI2c_Delay();
 }
 
-static void AHT10_SdaHigh(void) {
-  HAL_GPIO_WritePin(AHT10_I2C_SDA_GPIO, AHT10_I2C_SDA_PIN, GPIO_PIN_SET);
-  AHT10_I2cDelay();
+static void BoardI2c_SdaHigh(void) {
+  HAL_GPIO_WritePin(BOARD_I2C_SDA_GPIO, BOARD_I2C_SDA_PIN, GPIO_PIN_SET);
+  BoardI2c_Delay();
 }
 
-static void AHT10_SdaLow(void) {
-  HAL_GPIO_WritePin(AHT10_I2C_SDA_GPIO, AHT10_I2C_SDA_PIN, GPIO_PIN_RESET);
-  AHT10_I2cDelay();
+static void BoardI2c_SdaLow(void) {
+  HAL_GPIO_WritePin(BOARD_I2C_SDA_GPIO, BOARD_I2C_SDA_PIN, GPIO_PIN_RESET);
+  BoardI2c_Delay();
 }
 
-static GPIO_PinState AHT10_SdaRead(void) {
-  return HAL_GPIO_ReadPin(AHT10_I2C_SDA_GPIO, AHT10_I2C_SDA_PIN);
+static GPIO_PinState BoardI2c_SdaRead(void) {
+  return HAL_GPIO_ReadPin(BOARD_I2C_SDA_GPIO, BOARD_I2C_SDA_PIN);
 }
 
-static void AHT10_I2cStart(void) {
-  AHT10_SdaHigh();
-  AHT10_SclHigh();
-  AHT10_SdaLow();
-  AHT10_SclLow();
+static void BoardI2c_Start(void) {
+  BoardI2c_SdaHigh();
+  BoardI2c_SclHigh();
+  BoardI2c_SdaLow();
+  BoardI2c_SclLow();
 }
 
-static void AHT10_I2cStop(void) {
-  AHT10_SdaLow();
-  AHT10_SclHigh();
-  AHT10_SdaHigh();
+static void BoardI2c_Stop(void) {
+  BoardI2c_SdaLow();
+  BoardI2c_SclHigh();
+  BoardI2c_SdaHigh();
 }
 
-static uint8_t AHT10_I2cWriteByte(uint8_t value) {
+static uint8_t BoardI2c_WriteByte(uint8_t value) {
   for (uint8_t bit = 0U; bit < 8U; ++bit) {
     if ((value & 0x80U) != 0U) {
-      AHT10_SdaHigh();
+      BoardI2c_SdaHigh();
     } else {
-      AHT10_SdaLow();
+      BoardI2c_SdaLow();
     }
-    AHT10_SclHigh();
-    AHT10_SclLow();
+    BoardI2c_SclHigh();
+    BoardI2c_SclLow();
     value <<= 1;
   }
 
-  AHT10_SdaHigh();
-  AHT10_SclHigh();
-  uint8_t ack = (AHT10_SdaRead() == GPIO_PIN_RESET) ? 1U : 0U;
-  AHT10_SclLow();
+  BoardI2c_SdaHigh();
+  BoardI2c_SclHigh();
+  uint8_t ack = (BoardI2c_SdaRead() == GPIO_PIN_RESET) ? 1U : 0U;
+  BoardI2c_SclLow();
   return ack;
 }
 
-static uint8_t AHT10_I2cReadByte(uint8_t ack) {
+static uint8_t BoardI2c_ReadByte(uint8_t ack) {
   uint8_t value = 0U;
 
-  AHT10_SdaHigh();
+  BoardI2c_SdaHigh();
   for (uint8_t bit = 0U; bit < 8U; ++bit) {
     value <<= 1U;
-    AHT10_SclHigh();
-    if (AHT10_SdaRead() == GPIO_PIN_SET) {
+    BoardI2c_SclHigh();
+    if (BoardI2c_SdaRead() == GPIO_PIN_SET) {
       value |= 1U;
     }
-    AHT10_SclLow();
+    BoardI2c_SclLow();
   }
 
   if (ack != 0U) {
-    AHT10_SdaLow();
+    BoardI2c_SdaLow();
   } else {
-    AHT10_SdaHigh();
+    BoardI2c_SdaHigh();
   }
-  AHT10_SclHigh();
-  AHT10_SclLow();
-  AHT10_SdaHigh();
+  BoardI2c_SclHigh();
+  BoardI2c_SclLow();
+  BoardI2c_SdaHigh();
   return value;
 }
 
-static uint8_t AHT10_WriteCommand(const uint8_t *data, uint8_t size) {
-  AHT10_I2cStart();
-  if (AHT10_I2cWriteByte((uint8_t)(AHT10_ADDRESS << 1U)) == 0U) {
-    AHT10_I2cStop();
+static uint8_t BoardI2c_Write(uint8_t address, const uint8_t *data,
+                              uint8_t size) {
+  BoardI2c_Start();
+  if (BoardI2c_WriteByte((uint8_t)(address << 1U)) == 0U) {
+    BoardI2c_Stop();
     return 0U;
   }
   for (uint8_t index = 0U; index < size; ++index) {
-    if (AHT10_I2cWriteByte(data[index]) == 0U) {
-      AHT10_I2cStop();
+    if (BoardI2c_WriteByte(data[index]) == 0U) {
+      BoardI2c_Stop();
       return 0U;
     }
   }
-  AHT10_I2cStop();
+  BoardI2c_Stop();
   return 1U;
 }
 
-static uint8_t AHT10_ReadData(uint8_t *data, uint8_t size) {
-  AHT10_I2cStart();
-  if (AHT10_I2cWriteByte((uint8_t)((AHT10_ADDRESS << 1U) | 1U)) == 0U) {
-    AHT10_I2cStop();
+static uint8_t BoardI2c_Read(uint8_t address, uint8_t *data, uint8_t size) {
+  BoardI2c_Start();
+  if (BoardI2c_WriteByte((uint8_t)((address << 1U) | 1U)) == 0U) {
+    BoardI2c_Stop();
     return 0U;
   }
   for (uint8_t index = 0U; index < size; ++index) {
-    data[index] = AHT10_I2cReadByte((index + 1U) < size);
+    data[index] = BoardI2c_ReadByte((index + 1U) < size);
   }
-  AHT10_I2cStop();
+  BoardI2c_Stop();
   return 1U;
 }
 
-static void AHT10_GpioInit(void) {
+static uint8_t AHT10_WriteCommand(const uint8_t *data, uint8_t size) {
+  return BoardI2c_Write(AHT10_ADDRESS, data, size);
+}
+
+static uint8_t AHT10_ReadData(uint8_t *data, uint8_t size) {
+  return BoardI2c_Read(AHT10_ADDRESS, data, size);
+}
+
+static void BoardI2c_GpioInit(void) {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
 
   __HAL_RCC_GPIOA_CLK_ENABLE();
 
-  GPIO_InitStruct.Pin = AHT10_I2C_SCL_PIN | AHT10_I2C_SDA_PIN;
+  GPIO_InitStruct.Pin = BOARD_I2C_SCL_PIN | BOARD_I2C_SDA_PIN;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
   GPIO_InitStruct.Pull = GPIO_PULLUP;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  HAL_GPIO_WritePin(GPIOA, AHT10_I2C_SCL_PIN | AHT10_I2C_SDA_PIN,
+  HAL_GPIO_WritePin(GPIOA, BOARD_I2C_SCL_PIN | BOARD_I2C_SDA_PIN,
                     GPIO_PIN_SET);
 }
 
 static uint8_t AHT10_InitSensor(void) {
   static const uint8_t initCommand[3] = {0xE1U, 0x08U, 0x00U};
 
-  AHT10_GpioInit();
+  BoardI2c_GpioInit();
   HAL_Delay(AHT10_INIT_DELAY_MS);
 
   if (AHT10_WriteCommand(initCommand, sizeof(initCommand)) == 0U) {
@@ -264,6 +280,44 @@ static uint8_t AHT10_Fail(ClockEnvironment_t *environment) {
   environment->humidity = 0U;
   environment->isValid = 0U;
   lastEnvironment = *environment;
+  return 1U;
+}
+
+static uint8_t BH1750_WriteCommand(uint8_t command) {
+  return BoardI2c_Write(BH1750_ADDRESS, &command, 1U);
+}
+
+static uint8_t BH1750_InitSensor(void) {
+  BoardI2c_GpioInit();
+
+  if (BH1750_WriteCommand(BH1750_POWER_ON) == 0U) {
+    return 0U;
+  }
+  (void)BH1750_WriteCommand(BH1750_RESET);
+  if (BH1750_WriteCommand(BH1750_CONT_HIGH_RES_MODE) == 0U) {
+    return 0U;
+  }
+
+  lastBrightnessReadMs = HAL_GetTick();
+  bh1750Initialized = 1U;
+  return 1U;
+}
+
+static uint8_t BH1750_ReadLux(uint16_t *lux) {
+  uint8_t data[2] = {0U, 0U};
+  uint32_t raw;
+
+  if ((bh1750Initialized == 0U) && (BH1750_InitSensor() == 0U)) {
+    return 0U;
+  }
+
+  if (BoardI2c_Read(BH1750_ADDRESS, data, sizeof(data)) == 0U) {
+    bh1750Initialized = 0U;
+    return 0U;
+  }
+
+  raw = (((uint32_t)data[0]) << 8U) | data[1];
+  *lux = (uint16_t)((raw * 5U) / 6U);
   return 1U;
 }
 
@@ -307,7 +361,7 @@ void Board_Init(void) {
   HAL_GPIO_WritePin(SHIFT_REGISTER_LATCH_GPIO, SHIFT_REGISTER_LATCH_PIN,
                     GPIO_PIN_RESET);
 
-  AHT10_GpioInit();
+  BoardI2c_GpioInit();
 
   ShiftRegister_OutputEnablePwmInit(DISPLAY_TEST_BRIGHTNESS);
   Board_WriteDisplay((ClockDisplay_t){0U, 0U});
@@ -379,37 +433,52 @@ ClockButton_t Board_ReadButton(void) {
 
 uint8_t Board_ReadBrightness(void) {
   static uint8_t currentLevel = 0U;
-  uint16_t adcValue = ADC_ReadChannel(LIGHT_SENSOR_ADC_CHANNEL);
-  uint32_t adcRange = LIGHT_SENSOR_ADC_BRIGHT - LIGHT_SENSOR_ADC_DARK;
+  uint32_t nowMs = HAL_GetTick();
+  uint16_t lux = 0U;
+  uint32_t luxRange = LIGHT_SENSOR_LUX_BRIGHT - LIGHT_SENSOR_LUX_DARK;
   uint8_t maxLevel = LIGHT_SENSOR_BRIGHTNESS_LEVELS - 1U;
   uint8_t nextLevel = currentLevel;
   uint32_t brightnessRange;
 
-  if ((adcRange == 0U) || (maxLevel == 0U)) {
+  if ((luxRange == 0U) || (maxLevel == 0U)) {
     return currentBrightness;
   }
 
-  if (adcValue <= LIGHT_SENSOR_ADC_DARK) {
+  if (bh1750Initialized == 0U) {
+    (void)BH1750_InitSensor();
+    return currentBrightness;
+  }
+
+  if ((nowMs - lastBrightnessReadMs) < BH1750_READ_INTERVAL_MS) {
+    return currentBrightness;
+  }
+  lastBrightnessReadMs = nowMs;
+
+  if (BH1750_ReadLux(&lux) == 0U) {
+    return currentBrightness;
+  }
+
+  if (lux <= LIGHT_SENSOR_LUX_DARK) {
     nextLevel = 0U;
-  } else if (adcValue >= LIGHT_SENSOR_ADC_BRIGHT) {
+  } else if (lux >= LIGHT_SENSOR_LUX_BRIGHT) {
     nextLevel = maxLevel;
   } else {
-    uint32_t adcOffset = adcValue - LIGHT_SENSOR_ADC_DARK;
+    uint32_t luxOffset = lux - LIGHT_SENSOR_LUX_DARK;
     nextLevel =
-        (uint8_t)((adcOffset * maxLevel + (adcRange / 2U)) / adcRange);
+        (uint8_t)((luxOffset * maxLevel + (luxRange / 2U)) / luxRange);
   }
 
   if (nextLevel > currentLevel) {
     uint32_t upThreshold =
-        LIGHT_SENSOR_ADC_DARK +
-        ((uint32_t)(currentLevel + 1U) * adcRange) / maxLevel;
-    if (adcValue >= (upThreshold + LIGHT_SENSOR_ADC_HYSTERESIS)) {
+        LIGHT_SENSOR_LUX_DARK +
+        ((uint32_t)(currentLevel + 1U) * luxRange) / maxLevel;
+    if (lux >= (upThreshold + LIGHT_SENSOR_LUX_HYSTERESIS)) {
       currentLevel = nextLevel;
     }
   } else if (nextLevel < currentLevel) {
     uint32_t downThreshold =
-        LIGHT_SENSOR_ADC_DARK + ((uint32_t)currentLevel * adcRange) / maxLevel;
-    if ((adcValue + LIGHT_SENSOR_ADC_HYSTERESIS) <= downThreshold) {
+        LIGHT_SENSOR_LUX_DARK + ((uint32_t)currentLevel * luxRange) / maxLevel;
+    if ((lux + LIGHT_SENSOR_LUX_HYSTERESIS) <= downThreshold) {
       currentLevel = nextLevel;
     }
   }

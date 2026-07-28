@@ -13,7 +13,7 @@ The CubeMX project is `l010f4p6.ioc`.
 | PA3 | 74HC595 RCLK / ST_CP | Shift-register latch clock, pin 12 |
 | PA4 | 74HC595 SRCLK / SH_CP | Shift-register shift clock, pin 11 |
 | PA5 | 74HC595 OE / TIM2_CH1 | Active-low output enable PWM, pin 13 |
-| PA6 | Light ADC | LDR/light sensor input, `ADC_IN6` |
+| PA6 | Free | Previously used for LDR/light ADC |
 | PA7 | Free | Previously used for DHT11 DATA |
 | PA9 | I2C SCL | Software I2C clock for OLED and AHT10 |
 | PA10 | I2C SDA | Software I2C data for OLED and AHT10 |
@@ -35,7 +35,7 @@ The current display module uses two chained 74HC595 shift registers:
 | PA5 | OE / TIM2_CH1 PWM | 13 |
 
 OE is active-low. Firmware controls the display brightness automatically from
-the light sensor on `PA6 / ADC_IN6`.
+the BH1750 light sensor on the shared I2C bus.
 
 ## Buttons ADC Ladder
 
@@ -63,9 +63,10 @@ The experimental I2C branch uses a software I2C bus:
 | PA10 | SDA |
 
 The 0.91" 128x32 OLED is probed at `0x3C`, then `0x3D`. The AHT10
-temperature/humidity sensor uses address `0x38`. Both lines are configured as
-open-drain GPIO with pull-ups enabled in firmware; external pull-ups are still
-recommended for a stable bus.
+temperature/humidity sensor uses address `0x38`. The BH1750 light sensor uses
+address `0x23`. All devices share the same two lines. Both lines are configured
+as open-drain GPIO with pull-ups enabled in firmware; external pull-ups are
+still recommended for a stable bus.
 
 The firmware initializes AHT10 with `0xE1 0x08 0x00`, triggers a measurement
 with `0xAC 0x33 0x00`, waits about 80 ms, then reads 6 bytes and converts the
@@ -88,22 +89,23 @@ number. The lower humidity LEDs are a scale, not a binary value:
 For example, top `011011` means `27 C`; three lit humidity LEDs means about
 `60% RH`.
 
-## Light Sensor
+## BH1750 Light Sensor
 
-The light sensor is connected to `PA6 / ADC_IN6`. The firmware reads it through
-the shared ADC and maps the raw value to six brightness steps with hysteresis,
-then applies that brightness through `PA5 / TIM2_CH1` to the 74HC595 OE pin.
+The light sensor is now a BH1750 on the shared software I2C bus. Firmware puts
+it into continuous high-resolution mode and reads lux about once per second,
+then maps that value to six brightness steps with hysteresis. Brightness is
+applied through `PA5 / TIM2_CH1` to the 74HC595 OE pin.
 
 Current brightness calibration:
 
 | Setting | Value |
 | --- | ---: |
-| ADC dark | 1000 |
-| ADC bright | 3200 |
+| Lux dark | 5 |
+| Lux bright | 1000 |
 | Brightness min | 2% |
 | Brightness max | 25% |
 | Brightness levels | 6 |
-| ADC hysteresis | 80 |
+| Lux hysteresis | 15 |
 
 ## Active Buzzer
 
