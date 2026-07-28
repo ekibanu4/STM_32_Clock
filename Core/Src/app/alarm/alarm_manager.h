@@ -12,6 +12,8 @@ void AlarmManager_ToggleAll(void);
 void AlarmManager_UpdateTrigger(const ClockDateTime_t *dateTime);
 void AlarmManager_UpdateBuzzer(void);
 
+uint8_t AlarmManager_IsBuzzerActive(void);
+uint8_t AlarmManager_ActiveSlot(void);
 uint8_t AlarmManager_AnyEnabled(void);
 const AlarmSlot_t *AlarmManager_Slots(void);
 uint8_t AlarmManager_SlotCount(void);

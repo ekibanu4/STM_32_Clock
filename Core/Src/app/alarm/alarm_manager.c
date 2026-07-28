@@ -12,6 +12,7 @@ static AlarmSlot_t alarmSlots[ALARM_SLOT_COUNT] = {{0U, 0U, 0U, 0U},
                                                    {0U, 0U, 0U, 0U}};
 static uint8_t selectedAlarmSlot = 0U;
 static uint32_t alarmBuzzerTicks = 0U;
+static uint8_t activeAlarmSlot = 0xFFU;
 static uint8_t lastAlarmTriggerHour = 255U;
 static uint8_t lastAlarmTriggerMinute = 255U;
 
@@ -125,6 +126,7 @@ void AlarmManager_Init(void) {
 
 void AlarmManager_StopBuzzer(void) {
     alarmBuzzerTicks = 0U;
+    activeAlarmSlot = 0xFFU;
     Board_SetBuzzer(0U);
 }
 
@@ -170,6 +172,7 @@ void AlarmManager_UpdateTrigger(const ClockDateTime_t *dateTime) {
             (slot->hour == dateTime->hours) &&
             (slot->minute == dateTime->minutes)) {
             alarmBuzzerTicks = ALARM_BUZZER_DURATION_TICKS;
+            activeAlarmSlot = slotIndex;
             lastAlarmTriggerHour = dateTime->hours;
             lastAlarmTriggerMinute = dateTime->minutes;
             return;
@@ -191,9 +194,20 @@ void AlarmManager_UpdateBuzzer(void) {
             buzzerOn = (beepPhase < ALARM_BUZZER_BEEP_ON_TICKS) ? 1U : 0U;
         }
         --alarmBuzzerTicks;
+        if (alarmBuzzerTicks == 0U) {
+            activeAlarmSlot = 0xFFU;
+        }
     }
 
     Board_SetBuzzer(buzzerOn);
+}
+
+uint8_t AlarmManager_IsBuzzerActive(void) {
+    return (alarmBuzzerTicks > 0U) ? 1U : 0U;
+}
+
+uint8_t AlarmManager_ActiveSlot(void) {
+    return activeAlarmSlot;
 }
 
 uint8_t AlarmManager_AnyEnabled(void) {

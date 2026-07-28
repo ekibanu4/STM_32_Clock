@@ -13,7 +13,7 @@ The CubeMX project is `l010f4p6.ioc`.
 | PA3 | 74HC595 RCLK / ST_CP | Shift-register latch clock, pin 12 |
 | PA4 | 74HC595 SRCLK / SH_CP | Shift-register shift clock, pin 11 |
 | PA5 | 74HC595 OE / TIM2_CH1 | Active-low output enable PWM, pin 13 |
-| PA6 | Free | Previously used for LDR/light ADC |
+| PA6 | Buzzer drive | Active buzzer transistor control |
 | PA7 | Free | Previously used for DHT11 DATA |
 | PA9 | I2C SCL | Software I2C clock for OLED and AHT10 |
 | PA10 | I2C SDA | Software I2C data for OLED and AHT10 |
@@ -109,9 +109,8 @@ Current brightness calibration:
 
 ## Active Buzzer
 
-The active buzzer is disabled in this I2C/OLED experimental branch because
-`PA9` is used as I2C SCL. Move the buzzer to another free pin before enabling
-alarm sound again.
+`PA6` drives the active buzzer circuit through a transistor. The firmware drives
+`PA6` high while the buzzer should sound and low when it should be silent.
 
 ## Alarms
 

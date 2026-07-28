@@ -329,9 +329,11 @@ static uint8_t App_Tick(void)
   static uint32_t lastRtcRefreshTick = 0U;
   static uint32_t lastBlinkTick = 0U;
   static uint8_t blinkOn = 1U;
+  static uint8_t oledAlarmShown = 0U;
   uint32_t now = HAL_GetTick();
   ClockButton_t button = CLOCK_BUTTON_NONE;
   ClockDisplay_t display = {0U, 0U};
+  uint8_t alarmAnyEnabled = 0U;
 
   button = Board_ReadButton();
   UiController_UpdateButton(button, now);
@@ -371,20 +373,28 @@ static uint8_t App_Tick(void)
 
   AlarmManager_UpdateTrigger(UiController_DateTime());
   AlarmManager_UpdateBuzzer();
+  alarmAnyEnabled = AlarmManager_AnyEnabled();
 
   Board_SetBrightness(Board_ReadBrightness());
   display = DisplayRenderer_Build(
       UiController_DisplayMode(), UiController_EditTarget(),
       UiController_DateTime(), EnvironmentManager_Current(),
       AlarmManager_Slots(), AlarmManager_SlotCount(),
-      AlarmManager_SelectedSlot(), AlarmManager_AnyEnabled(),
-      UiController_AlarmErrorActive(), blinkOn);
+      AlarmManager_SelectedSlot(), alarmAnyEnabled, UiController_AlarmErrorActive(),
+      blinkOn);
   Board_WriteDisplay(display);
-  if (button == CLOCK_BUTTON_NONE) {
+
+  if (AlarmManager_IsBuzzerActive() != 0U) {
+    if (oledAlarmShown == 0U) {
+      OledTest_ShowAlarm(AlarmManager_ActiveSlot());
+      oledAlarmShown = 1U;
+    }
+  } else if (button == CLOCK_BUTTON_NONE) {
+    oledAlarmShown = 0U;
     OledTest_Render(now, UiController_DisplayMode(), UiController_DateTime(),
                     EnvironmentManager_Current(), AlarmManager_Slots(),
                     AlarmManager_SlotCount(), AlarmManager_SelectedSlot(),
-                    UiController_EditTarget(), blinkOn);
+                    UiController_EditTarget(), alarmAnyEnabled, blinkOn);
   }
 
   return 1U;

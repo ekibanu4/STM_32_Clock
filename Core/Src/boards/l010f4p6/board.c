@@ -365,6 +365,13 @@ void Board_Init(void) {
   HAL_GPIO_WritePin(SHIFT_REGISTER_LATCH_GPIO, SHIFT_REGISTER_LATCH_PIN,
                     GPIO_PIN_RESET);
 
+  GPIO_InitStruct.Pin = BUZZER_PIN;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(BUZZER_GPIO, &GPIO_InitStruct);
+  HAL_GPIO_WritePin(BUZZER_GPIO, BUZZER_PIN, GPIO_PIN_RESET);
+
   BoardI2c_GpioInit();
 
   ShiftRegister_OutputEnablePwmInit(DISPLAY_TEST_BRIGHTNESS);
@@ -689,7 +696,8 @@ void Board_WriteAlarmStorage(const uint8_t *data, uint8_t size) {
 }
 
 void Board_SetBuzzer(uint8_t isEnabled) {
-  (void)isEnabled;
+  HAL_GPIO_WritePin(BUZZER_GPIO, BUZZER_PIN,
+                    (isEnabled != 0U) ? GPIO_PIN_SET : GPIO_PIN_RESET);
 }
 
 void Board_DelayLoop(void) {
