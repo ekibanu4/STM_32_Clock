@@ -568,6 +568,12 @@ void OledTest_Init(void) {
   Oled_Fill(0x00U);
 }
 
+void OledTest_Clear(void) {
+  if (oledReady != 0U) {
+    Oled_Fill(0x00U);
+  }
+}
+
 void OledTest_ShowAlarm(uint8_t alarmSlot) {
   char text[8] = {'A', 'L', 'A', 'R', 'M', ' ', '?', '\0'};
 

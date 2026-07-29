@@ -6,6 +6,7 @@
 #include "app_types.h"
 
 void OledTest_Init(void);
+void OledTest_Clear(void);
 void OledTest_ShowAlarm(uint8_t alarmSlot);
 void OledTest_Render(uint32_t nowMs, DisplayMode_t displayMode,
                      const ClockDateTime_t *dateTime,

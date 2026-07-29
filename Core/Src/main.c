@@ -343,15 +343,9 @@ static uint8_t App_Tick(void)
     standbyWakeGraceActive = 0U;
   }
 
-  /*
-   * The OLED/I2C bring-up board does not always have main-power sense wired.
-   * Keep standby disabled while the display modes are being tested.
-   */
-  /*
   if ((standbyWakeGraceActive == 0U) && (Board_IsMainPowerPresent() == 0U)) {
     Board_EnterStandby();
   }
-  */
 
   if ((now - lastLoopTick) < MAIN_LOOP_DELAY_MS) {
     return 0U;

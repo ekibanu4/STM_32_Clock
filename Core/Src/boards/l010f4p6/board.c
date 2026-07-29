@@ -1,6 +1,7 @@
 #include "board.h"
 
 #include "board_config.h"
+#include "oled_test.h"
 #include "stm32l0xx_ll_adc.h"
 
 #define ALARM_STORAGE_SIZE 16U
@@ -397,8 +398,14 @@ void Board_EnterStandby(void) {
       return;
     }
   }
+  HAL_Delay(5U);
+  if (HAL_GPIO_ReadPin(MAIN_POWER_WAKEUP_GPIO,
+                       MAIN_POWER_WAKEUP_GPIO_PIN) == GPIO_PIN_SET) {
+    return;
+  }
 
   Board_WriteDisplay((ClockDisplay_t){0U, 0U});
+  OledTest_Clear();
   TIM2->CCR1 = 0U;
   TIM2->CCER = 0U;
   TIM2->CR1 = 0U;
