@@ -30,6 +30,8 @@
 #define OLED_ALARM_INDICATOR_COLUMN 122U
 #define OLED_ALARM_INDICATOR_PAGE 3U
 #define OLED_I2C_DELAY_CYCLES 8U
+#define OLED_POWER_ON_DELAY_MS 80U
+#define OLED_PROBE_RETRIES 3U
 
 static uint8_t oledAddress = OLED_ADDR_PRIMARY;
 static uint8_t oledReady = 0U;
@@ -75,6 +77,15 @@ static void I2cStop(void) {
   SdaLow();
   SclHigh();
   SdaHigh();
+}
+
+static void I2cRecoverBus(void) {
+  SdaHigh();
+  for (uint8_t pulse = 0U; pulse < 9U; ++pulse) {
+    SclHigh();
+    SclLow();
+  }
+  I2cStop();
 }
 
 static uint8_t I2cWriteByte(uint8_t value) {
@@ -545,16 +556,26 @@ void OledTest_Init(void) {
       0xF1U, 0xDAU, 0x02U, 0xDBU, 0x40U, 0x8DU, 0x14U, 0xAFU};
 
   Oled_GpioInit();
+  HAL_Delay(OLED_POWER_ON_DELAY_MS);
+  I2cRecoverBus();
   SdaHigh();
   SclHigh();
 
-  oledAddress = OLED_ADDR_PRIMARY;
-  if (Oled_Probe(oledAddress) == 0U) {
+  for (uint8_t attempt = 0U; attempt < OLED_PROBE_RETRIES; ++attempt) {
+    oledAddress = OLED_ADDR_PRIMARY;
+    if (Oled_Probe(oledAddress) != 0U) {
+      break;
+    }
     oledAddress = OLED_ADDR_SECONDARY;
-    if (Oled_Probe(oledAddress) == 0U) {
+    if (Oled_Probe(oledAddress) != 0U) {
+      break;
+    }
+    if ((attempt + 1U) >= OLED_PROBE_RETRIES) {
       oledReady = 0U;
       return;
     }
+    HAL_Delay(20U);
+    I2cRecoverBus();
   }
 
   for (uint8_t index = 0U; index < sizeof(initCommands); ++index) {

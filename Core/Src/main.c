@@ -40,7 +40,6 @@
 #define MAIN_LOOP_DELAY_MS 20U
 #define RTC_REFRESH_INTERVAL_MS 1000U
 #define BLINK_INTERVAL_MS 800U
-#define STANDBY_WAKE_GRACE_MS 3000U
 
 /* USER CODE END PD */
 
@@ -54,8 +53,6 @@ ADC_HandleTypeDef hadc;
 
 /* USER CODE BEGIN PV */
 RTC_HandleTypeDef hrtc;
-static uint8_t standbyWakeGraceActive = 0U;
-static uint32_t standbyWakeGraceStartMs = 0U;
 
 /* USER CODE END PV */
 
@@ -108,13 +105,6 @@ int main(void)
   (void)App_RTC_Init();
   Board_Init();
   OledTest_Init();
-
-  if (__HAL_PWR_GET_FLAG(PWR_FLAG_SB) != RESET) {
-    standbyWakeGraceActive = 1U;
-    standbyWakeGraceStartMs = HAL_GetTick();
-    __HAL_PWR_CLEAR_FLAG(PWR_FLAG_SB);
-    __HAL_PWR_CLEAR_FLAG(PWR_FLAG_WU);
-  }
 
   UiController_Init();
   AlarmManager_Init();
@@ -328,29 +318,20 @@ static uint8_t App_Tick(void)
   static uint32_t lastLoopTick = 0U;
   static uint32_t lastRtcRefreshTick = 0U;
   static uint32_t lastBlinkTick = 0U;
-  static uint8_t blinkOn = 1U;
   static uint8_t oledAlarmShown = 0U;
+  static uint8_t blinkOn = 1U;
   uint32_t now = HAL_GetTick();
   ClockButton_t button = CLOCK_BUTTON_NONE;
   ClockDisplay_t display = {0U, 0U};
   uint8_t alarmAnyEnabled = 0U;
 
-  button = Board_ReadButton();
-  UiController_UpdateButton(button, now);
-
-  if ((standbyWakeGraceActive != 0U) &&
-      ((now - standbyWakeGraceStartMs) >= STANDBY_WAKE_GRACE_MS)) {
-    standbyWakeGraceActive = 0U;
-  }
-
-  if ((standbyWakeGraceActive == 0U) && (Board_IsMainPowerPresent() == 0U)) {
-    Board_EnterStandby();
-  }
-
   if ((now - lastLoopTick) < MAIN_LOOP_DELAY_MS) {
     return 0U;
   }
   lastLoopTick = now;
+
+  button = Board_ReadButton();
+  UiController_UpdateButton(button, now);
 
   if ((now - lastBlinkTick) >= BLINK_INTERVAL_MS) {
     blinkOn = (blinkOn == 0U) ? 1U : 0U;
@@ -367,8 +348,8 @@ static uint8_t App_Tick(void)
 
   AlarmManager_UpdateTrigger(UiController_DateTime());
   AlarmManager_UpdateBuzzer();
-  alarmAnyEnabled = AlarmManager_AnyEnabled();
 
+  alarmAnyEnabled = AlarmManager_AnyEnabled();
   Board_SetBrightness(Board_ReadBrightness());
   display = DisplayRenderer_Build(
       UiController_DisplayMode(), UiController_EditTarget(),
