@@ -207,6 +207,10 @@ static uint8_t Oled_GlyphColumn(char symbol, uint8_t column) {
     static const uint8_t glyph[5] = {0x7EU, 0x11U, 0x11U, 0x11U, 0x7EU};
     return glyph[column];
   }
+  case 'B': {
+    static const uint8_t glyph[5] = {0x7FU, 0x49U, 0x49U, 0x49U, 0x36U};
+    return glyph[column];
+  }
   case 'F': {
     static const uint8_t glyph[5] = {0x7FU, 0x09U, 0x09U, 0x09U, 0x01U};
     return glyph[column];
@@ -237,6 +241,10 @@ static uint8_t Oled_GlyphColumn(char symbol, uint8_t column) {
   }
   case 'T': {
     static const uint8_t glyph[5] = {0x01U, 0x01U, 0x7FU, 0x01U, 0x01U};
+    return glyph[column];
+  }
+  case '%': {
+    static const uint8_t glyph[5] = {0x23U, 0x13U, 0x08U, 0x64U, 0x62U};
     return glyph[column];
   }
   default:
@@ -425,6 +433,53 @@ static void Oled_ShowEnvironment(const ClockEnvironment_t *environment) {
   }
 
   Oled_WriteScaledText(text, OLED_MODE_PAGE, OLED_MODE_COLUMN);
+}
+
+static void Oled_ShowBattery(uint16_t batteryPercentTenths) {
+  char text[11] = {'B', 'A', 'T', ' ', '0', '0', '.', '0', '%', '\0', '\0'};
+  uint8_t wholePercent = (uint8_t)(batteryPercentTenths / 10U);
+  uint8_t filledColumns =
+      (uint8_t)(((uint32_t)batteryPercentTenths * 120U) / 1000U);
+  uint8_t data[16];
+
+  if (wholePercent >= 100U) {
+    text[4] = '1';
+    text[5] = '0';
+    text[6] = '0';
+    text[7] = '.';
+    text[8] = '0';
+    text[9] = '%';
+    text[10] = '\0';
+  } else {
+    text[4] = (char)('0' + ((wholePercent / 10U) % 10U));
+    text[5] = (char)('0' + (wholePercent % 10U));
+    text[7] = (char)('0' + (batteryPercentTenths % 10U));
+  }
+
+  Oled_WriteScaledText(text, OLED_MODE_PAGE, 4U);
+
+  for (uint8_t column = 0U; column < sizeof(data); ++column) {
+    data[column] = 0x81U;
+  }
+  if (Oled_SetCursor(3U, 4U) == 0U) {
+    return;
+  }
+  for (uint8_t column = 0U; column < 120U; column += sizeof(data)) {
+    for (uint8_t index = 0U; index < sizeof(data); ++index) {
+      uint8_t absoluteColumn = (uint8_t)(column + index);
+
+      if (absoluteColumn >= 120U) {
+        data[index] = 0x00U;
+      } else if (absoluteColumn < filledColumns) {
+        data[index] = 0xFFU;
+      } else {
+        data[index] = 0x81U;
+      }
+    }
+    if (Oled_Write(oledAddress, 0x40U, data, sizeof(data)) == 0U) {
+      return;
+    }
+  }
 }
 
 static uint8_t Oled_IsAlarmEdit(EditTarget_t editTarget) {
@@ -616,6 +671,7 @@ void Oled128x32_Render(uint32_t nowMs, DisplayMode_t displayMode,
                      const ClockEnvironment_t *environment,
                      const AlarmSlot_t *alarmSlots, uint8_t alarmSlotCount,
                      uint8_t selectedAlarmSlot, EditTarget_t editTarget,
+                     uint16_t batteryPercentTenths,
                      uint8_t alarmAnyEnabled, uint8_t blinkOn) {
   static uint32_t lastDrawMs = 0xFFFFFFFFUL;
   static DisplayMode_t lastDisplayMode = DISPLAY_ALARM;
@@ -630,6 +686,7 @@ void Oled128x32_Render(uint32_t nowMs, DisplayMode_t displayMode,
   static uint8_t lastEnvironmentValid = 0xFFU;
   static uint8_t lastSelectedAlarmSlot = 0xFFU;
   static uint8_t lastAlarmAnyEnabled = 0xFFU;
+  static uint16_t lastBatteryPercentTenths = 0xFFFFU;
   static EditTarget_t lastEditTarget = EDIT_NONE;
   static AlarmSlot_t lastAlarmSlots[OLED_ALARM_MAX_ROWS];
   uint8_t shouldDraw = 0U;
@@ -689,6 +746,8 @@ void Oled128x32_Render(uint32_t nowMs, DisplayMode_t displayMode,
         shouldDraw = 1U;
       }
     }
+  } else if (displayMode == DISPLAY_BATTERY) {
+    shouldDraw = (batteryPercentTenths != lastBatteryPercentTenths) ? 1U : 0U;
   }
 
   if (shouldDraw == 0U) {
@@ -712,6 +771,7 @@ void Oled128x32_Render(uint32_t nowMs, DisplayMode_t displayMode,
   lastEnvironmentValid = environment->isValid;
   lastSelectedAlarmSlot = selectedAlarmSlot;
   lastAlarmAnyEnabled = alarmAnyEnabled;
+  lastBatteryPercentTenths = batteryPercentTenths;
   lastEditTarget = editTarget;
   {
     uint8_t rows = alarmSlotCount;
@@ -747,6 +807,8 @@ void Oled128x32_Render(uint32_t nowMs, DisplayMode_t displayMode,
   } else if (displayMode == DISPLAY_ALARM) {
     Oled_ShowAlarm(alarmSlots, alarmSlotCount, selectedAlarmSlot, editTarget,
                    blinkOn);
+  } else if (displayMode == DISPLAY_BATTERY) {
+    Oled_ShowBattery(batteryPercentTenths);
   } else {
     Oled_ShowTime(dateTime, editTarget, alarmAnyEnabled);
   }

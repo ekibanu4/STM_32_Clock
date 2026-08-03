@@ -9,7 +9,8 @@ typedef enum {
     DISPLAY_TIME = 0,
     DISPLAY_DATE,
     DISPLAY_ENVIRONMENT,
-    DISPLAY_ALARM
+    DISPLAY_ALARM,
+    DISPLAY_BATTERY
 } DisplayMode_t;
 
 typedef enum {

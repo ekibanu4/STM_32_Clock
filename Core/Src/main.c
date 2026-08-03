@@ -42,6 +42,7 @@
 #define BLINK_INTERVAL_MS 800U
 #define MAIN_POWER_STANDBY_ENABLED 1U
 #define IDLE_PERIPHERAL_TIMEOUT_MS 15000U
+#define LOW_BATTERY_BLINK_INTERVAL_MS 1000U
 
 /* USER CODE END PD */
 
@@ -324,9 +325,11 @@ static uint8_t App_Tick(void)
   static uint8_t oledAlarmShown = 0U;
   static uint8_t blinkOn = 1U;
   static uint8_t idlePeripheralsOff = 0U;
+  static uint8_t lowBatteryMode = 0U;
   uint32_t now = HAL_GetTick();
   ClockButton_t button = CLOCK_BUTTON_NONE;
   ClockDisplay_t display = {0U, 0U};
+  uint16_t batteryPercentTenths = 0U;
   uint8_t alarmAnyEnabled = 0U;
   uint8_t userActivity = 0U;
 
@@ -336,12 +339,37 @@ static uint8_t App_Tick(void)
   lastLoopTick = now;
 
 #if MAIN_POWER_STANDBY_ENABLED
-  if (Board_IsMainPowerPresent() == 0U) {
+  if (Board_IsWakePowerPresent() == 0U) {
     Board_EnterStandby();
     return 1U;
   }
 #endif
 
+  if (Board_IsBatteryAboveLowThreshold() == 0U) {
+    if (lowBatteryMode == 0U) {
+      Board_PowerDownIdleDevices();
+      lowBatteryMode = 1U;
+      blinkOn = 0U;
+      lastBlinkTick = now;
+    }
+    if ((now - lastBlinkTick) >= LOW_BATTERY_BLINK_INTERVAL_MS) {
+      blinkOn = (blinkOn == 0U) ? 1U : 0U;
+      lastBlinkTick = now;
+      Board_WriteDisplay(
+          (ClockDisplay_t){0U, (uint8_t)(blinkOn << CLOCK_BOARD2_ALARM_BIT)});
+    }
+    return 1U;
+  }
+
+  if (lowBatteryMode != 0U) {
+    lowBatteryMode = 0U;
+    idlePeripheralsOff = 0U;
+    oledAlarmShown = 0U;
+    lastActivityTick = now;
+    UiController_ShowTimeMode();
+  }
+
+  batteryPercentTenths = Board_ReadBatteryPercentTenths();
   button = Board_ReadButton();
   UiController_UpdateButton(button, now);
 
@@ -389,8 +417,8 @@ static uint8_t App_Tick(void)
       UiController_DisplayMode(), UiController_EditTarget(),
       UiController_DateTime(), EnvironmentManager_Current(),
       AlarmManager_Slots(), AlarmManager_SlotCount(),
-      AlarmManager_SelectedSlot(), alarmAnyEnabled, UiController_AlarmErrorActive(),
-      blinkOn);
+      AlarmManager_SelectedSlot(), batteryPercentTenths, alarmAnyEnabled,
+      UiController_AlarmErrorActive(), blinkOn);
   Board_WriteDisplay(display);
 
   if (AlarmManager_IsBuzzerActive() != 0U) {
@@ -403,7 +431,8 @@ static uint8_t App_Tick(void)
     Oled128x32_Render(now, UiController_DisplayMode(), UiController_DateTime(),
                     EnvironmentManager_Current(), AlarmManager_Slots(),
                     AlarmManager_SlotCount(), AlarmManager_SelectedSlot(),
-                    UiController_EditTarget(), alarmAnyEnabled, blinkOn);
+                    UiController_EditTarget(), batteryPercentTenths,
+                    alarmAnyEnabled, blinkOn);
   }
 
   return 1U;

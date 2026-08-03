@@ -170,22 +170,51 @@ RTC init keeps the LSE path conservative:
 - if LSE/RTC init returns an error, firmware returns from RTC init instead of
   staying forever in `Error_Handler()`.
 
-## Main Power Sense And Standby
+## Wake Power, Battery Sense, And Standby
 
-Main-power presence is measured on `PB1 / ADC_IN9`. The firmware converts the
-ADC reading through `VREFINT`, so the threshold is in millivolts instead of raw
-ADC counts.
+`PA0 / WKUP1` is the hard power-loss and wake signal. If `PA0` is low, the
+firmware powers external devices down, prepares `WKUP1`, and enters standby.
+
+Battery level is measured on `PB1 / ADC_IN9`. The firmware converts the
+ADC reading through `VREFINT`, then scales it through the measured battery
+divider calibration.
+
+Current divider calibration:
+
+```text
+1880 mV on PB1 = 3650 mV on BAT+
+```
 
 Current threshold:
 
 ```text
-MAIN_POWER_SENSE_MV_MIN = 2500 mV
+MAIN_POWER_BATTERY_MV_MIN = 2900 mV battery voltage
+MAIN_POWER_BATTERY_MV_MAX = 4200 mV battery voltage
 ```
 
-The main loop enters standby when `PB1` is below the threshold for three
-consecutive checks. Before standby the firmware powers external devices down,
-then waits up to `25 s` for `PA0 / WKUP1` to be low and debounces that low level
-for `300 ms`.
+When the scaled battery voltage is below the threshold for three consecutive
+checks while `PA0` is still high, firmware enters low-battery mode instead of
+standby: external devices are powered down and only the alarm LED blinks
+periodically.
+
+Before standby the firmware powers external devices down, then waits up to
+`25 s` for `PA0 / WKUP1` to be low and debounces that low level for `300 ms`.
+
+The battery display percentage uses the same calibrated battery voltage:
+
+```text
+2900 mV = 0%
+4200 mV = 100%
+```
+
+The manual mode button cycle is:
+
+```text
+time -> date -> environment -> alarm -> battery -> time
+```
+
+In battery mode the 74HC595 display uses only the six minute LEDs as a charge
+bar. The OLED shows `BAT xx.x%` plus a bottom charge bar.
 
 Expected power-loss flow:
 

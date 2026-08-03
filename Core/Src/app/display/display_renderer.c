@@ -73,6 +73,10 @@ static void AddHumidityScaleLed(uint8_t ledIndex, ClockDisplay_t *display) {
     }
 }
 
+static void AddMinuteScaleLed(uint8_t ledIndex, ClockDisplay_t *display) {
+    AddHumidityScaleLed(ledIndex, display);
+}
+
 static void AddHumidityToEnvironmentDisplay(uint8_t humidity,
                                             ClockDisplay_t *display) {
     uint8_t fullLedCount = 0U;
@@ -233,6 +237,21 @@ static ClockDisplay_t BuildAlarmDisplay(EditTarget_t editTarget,
     return display;
 }
 
+static ClockDisplay_t BuildBatteryDisplay(uint16_t batteryPercentTenths) {
+    ClockDisplay_t display = {0U, 0U};
+    uint8_t fullLedCount =
+        (uint8_t)((batteryPercentTenths + 166U) / 167U);
+
+    if (fullLedCount > 6U) {
+        fullLedCount = 6U;
+    }
+
+    for (uint8_t ledIndex = 0U; ledIndex < fullLedCount; ++ledIndex) {
+        AddMinuteScaleLed(ledIndex, &display);
+    }
+    return display;
+}
+
 static ClockDisplay_t BuildEditDisplay(DisplayMode_t displayMode,
                                        EditTarget_t editTarget,
                                        const ClockDateTime_t *dateTime,
@@ -281,6 +300,7 @@ ClockDisplay_t DisplayRenderer_Build(DisplayMode_t displayMode,
                                       const AlarmSlot_t *alarmSlots,
                                       uint8_t alarmSlotCount,
                                       uint8_t selectedAlarmSlot,
+                                      uint16_t batteryPercentTenths,
                                       uint8_t anyAlarmEnabled,
                                       uint8_t alarmErrorActive,
                                       uint8_t blinkOn) {
@@ -289,6 +309,10 @@ ClockDisplay_t DisplayRenderer_Build(DisplayMode_t displayMode,
     if (displayMode == DISPLAY_ALARM) {
         return BuildAlarmDisplay(editTarget, alarmSlots, alarmSlotCount,
                                  selectedAlarmSlot, alarmErrorActive, blinkOn);
+    }
+
+    if (displayMode == DISPLAY_BATTERY) {
+        return BuildBatteryDisplay(batteryPercentTenths);
     }
 
     if (editTarget != EDIT_NONE) {

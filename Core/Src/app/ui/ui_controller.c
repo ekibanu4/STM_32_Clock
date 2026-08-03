@@ -95,6 +95,8 @@ static void HandleModeButton(void) {
         displayMode = DISPLAY_ENVIRONMENT;
     } else if (displayMode == DISPLAY_ENVIRONMENT) {
         displayMode = DISPLAY_ALARM;
+    } else if (displayMode == DISPLAY_ALARM) {
+        displayMode = DISPLAY_BATTERY;
     } else {
         displayMode = DISPLAY_TIME;
     }

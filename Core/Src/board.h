@@ -54,6 +54,9 @@ enum {
 
 void Board_Init(void);
 uint8_t Board_IsMainPowerPresent(void);
+uint8_t Board_IsWakePowerPresent(void);
+uint8_t Board_IsBatteryAboveLowThreshold(void);
+uint16_t Board_ReadBatteryPercentTenths(void);
 void Board_EnterStandby(void);
 ClockButton_t Board_ReadButton(void);
 uint8_t Board_ReadBrightness(void);

@@ -12,6 +12,7 @@ ClockDisplay_t DisplayRenderer_Build(DisplayMode_t displayMode,
                                       const AlarmSlot_t *alarmSlots,
                                       uint8_t alarmSlotCount,
                                       uint8_t selectedAlarmSlot,
+                                      uint16_t batteryPercentTenths,
                                       uint8_t anyAlarmEnabled,
                                       uint8_t alarmErrorActive,
                                       uint8_t blinkOn);

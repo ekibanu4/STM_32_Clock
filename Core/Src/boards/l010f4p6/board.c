@@ -129,6 +129,17 @@ static uint16_t MainPower_ReadSenseMv(void) {
   return (uint16_t)(((uint32_t)senseRaw * vddaMv) / ADC_FULL_SCALE);
 }
 
+static uint16_t MainPower_ReadBatteryMv(void) {
+  uint32_t senseMv = MainPower_ReadSenseMv();
+
+  if (MAIN_POWER_SENSE_ADC_CAL_MV == 0U) {
+    return 0U;
+  }
+
+  return (uint16_t)((senseMv * MAIN_POWER_SENSE_BATTERY_CAL_MV) /
+                    MAIN_POWER_SENSE_ADC_CAL_MV);
+}
+
 static void BoardI2c_Delay(void) {
   for (volatile uint8_t index = 0U; index < BOARD_I2C_DELAY_CYCLES; ++index) {
   }
@@ -388,12 +399,43 @@ void Board_Init(void) {
 }
 
 uint8_t Board_IsMainPowerPresent(void) {
+  return Board_IsBatteryAboveLowThreshold();
+}
+
+uint8_t Board_IsWakePowerPresent(void) {
+  return (HAL_GPIO_ReadPin(MAIN_POWER_WAKEUP_GPIO,
+                           MAIN_POWER_WAKEUP_GPIO_PIN) == GPIO_PIN_SET)
+             ? 1U
+             : 0U;
+}
+
+uint8_t Board_IsBatteryAboveLowThreshold(void) {
   for (uint8_t sample = 0U; sample < MAIN_POWER_CONFIRM_SAMPLES; ++sample) {
-    if (MainPower_ReadSenseMv() >= MAIN_POWER_SENSE_MV_MIN) {
+    if (MainPower_ReadBatteryMv() >= MAIN_POWER_BATTERY_MV_MIN) {
       return 1U;
     }
   }
   return 0U;
+}
+
+uint16_t Board_ReadBatteryPercentTenths(void) {
+  uint16_t batteryMv = MainPower_ReadBatteryMv();
+  uint32_t batteryRangeMv =
+      MAIN_POWER_BATTERY_MV_MAX - MAIN_POWER_BATTERY_MV_MIN;
+
+  if (batteryMv <= MAIN_POWER_BATTERY_MV_MIN) {
+    return 0U;
+  }
+  if (batteryMv >= MAIN_POWER_BATTERY_MV_MAX) {
+    return 1000U;
+  }
+  if (batteryRangeMv == 0U) {
+    return 0U;
+  }
+
+  return (uint16_t)((((uint32_t)batteryMv - MAIN_POWER_BATTERY_MV_MIN) *
+                     1000U) /
+                    batteryRangeMv);
 }
 
 void Board_EnterStandby(void) {
