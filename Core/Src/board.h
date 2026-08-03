@@ -66,6 +66,7 @@ uint8_t Board_ReadEnvironment(ClockEnvironment_t *environment);
 void Board_ReadAlarmStorage(uint8_t *data, uint8_t size);
 void Board_WriteAlarmStorage(const uint8_t *data, uint8_t size);
 void Board_SetBuzzer(uint8_t isEnabled);
+void Board_PowerDownExternalDevicesForTest(void);
 void Board_DelayLoop(void);
 
 #endif /* BOARD_H_ */

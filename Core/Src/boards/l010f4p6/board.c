@@ -10,7 +10,8 @@
 #define DISPLAY_TEST_BRIGHTNESS 20U
 #define ADC_FULL_SCALE 4095U
 #define MAIN_POWER_CONFIRM_SAMPLES 3U
-#define MAIN_POWER_WAKEUP_LOW_WAIT_MS 100U
+#define MAIN_POWER_WAKEUP_LOW_WAIT_MS 25000U
+#define MAIN_POWER_WAKEUP_LOW_DEBOUNCE_MS 300U
 #define AHT10_ADDRESS 0x38U
 #define AHT10_MIN_READ_INTERVAL_MS 2000UL
 #define AHT10_INIT_DELAY_MS 40U
@@ -392,25 +393,19 @@ void Board_EnterStandby(void) {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
   uint32_t waitStartMs = HAL_GetTick();
 
+  Board_PowerDownExternalDevicesForTest();
+
   while (HAL_GPIO_ReadPin(MAIN_POWER_WAKEUP_GPIO,
                           MAIN_POWER_WAKEUP_GPIO_PIN) == GPIO_PIN_SET) {
     if ((HAL_GetTick() - waitStartMs) >= MAIN_POWER_WAKEUP_LOW_WAIT_MS) {
       return;
     }
   }
-  HAL_Delay(5U);
+  HAL_Delay(MAIN_POWER_WAKEUP_LOW_DEBOUNCE_MS);
   if (HAL_GPIO_ReadPin(MAIN_POWER_WAKEUP_GPIO,
                        MAIN_POWER_WAKEUP_GPIO_PIN) == GPIO_PIN_SET) {
     return;
   }
-
-  Board_WriteDisplay((ClockDisplay_t){0U, 0U});
-  OledTest_Clear();
-  TIM2->CCR1 = 0U;
-  TIM2->CCER = 0U;
-  TIM2->CR1 = 0U;
-  HAL_GPIO_WritePin(SHIFT_REGISTER_OUTPUT_ENABLE_GPIO,
-                    SHIFT_REGISTER_OUTPUT_ENABLE_PIN, GPIO_PIN_SET);
 
   HAL_ADC_Stop(&hadc);
   HAL_ADC_DeInit(&hadc);
@@ -443,6 +438,34 @@ void Board_EnterStandby(void) {
 
   while (1) {
   }
+}
+
+void Board_PowerDownExternalDevicesForTest(void) {
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+  Board_WriteDisplay((ClockDisplay_t){0U, 0U});
+  OledTest_Clear();
+  Board_SetBuzzer(0U);
+
+  TIM2->CCR1 = 0U;
+  TIM2->CCER = 0U;
+  TIM2->CR1 = 0U;
+  HAL_GPIO_WritePin(SHIFT_REGISTER_OUTPUT_ENABLE_GPIO,
+                    SHIFT_REGISTER_OUTPUT_ENABLE_PIN, GPIO_PIN_SET);
+
+  HAL_ADC_Stop(&hadc);
+  HAL_ADCEx_DisableVREFINT();
+
+  GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Pin = GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3 | GPIO_PIN_4 |
+                        GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7 | GPIO_PIN_9 |
+                        GPIO_PIN_10 | GPIO_PIN_11 | GPIO_PIN_12 |
+                        GPIO_PIN_15;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  GPIO_InitStruct.Pin = GPIO_PIN_1;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 }
 
 ClockButton_t Board_ReadButton(void) {

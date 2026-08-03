@@ -40,6 +40,7 @@
 #define MAIN_LOOP_DELAY_MS 20U
 #define RTC_REFRESH_INTERVAL_MS 1000U
 #define BLINK_INTERVAL_MS 800U
+#define MAIN_POWER_STANDBY_ENABLED 1U
 
 /* USER CODE END PD */
 
@@ -329,6 +330,13 @@ static uint8_t App_Tick(void)
     return 0U;
   }
   lastLoopTick = now;
+
+#if MAIN_POWER_STANDBY_ENABLED
+  if (Board_IsMainPowerPresent() == 0U) {
+    Board_EnterStandby();
+    return 1U;
+  }
+#endif
 
   button = Board_ReadButton();
   UiController_UpdateButton(button, now);
