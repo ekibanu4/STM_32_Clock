@@ -12,6 +12,10 @@
 #define MAIN_POWER_CONFIRM_SAMPLES 3U
 #define MAIN_POWER_WAKEUP_LOW_WAIT_MS 25000U
 #define MAIN_POWER_WAKEUP_LOW_DEBOUNCE_MS 300U
+#define BATTERY_PERCENT_FILTER_SHIFT 4U
+#define BATTERY_PERCENT_DISPLAY_HYSTERESIS_TENTHS 20U
+#define BATTERY_PERCENT_UPDATE_INTERVAL_MS 2000U
+#define BATTERY_PERCENT_UNINITIALIZED 0xFFFFU
 #define AHT10_ADDRESS 0x38U
 #define AHT10_MIN_READ_INTERVAL_MS 2000UL
 #define AHT10_INIT_DELAY_MS 40U
@@ -422,20 +426,50 @@ uint16_t Board_ReadBatteryPercentTenths(void) {
   uint16_t batteryMv = MainPower_ReadBatteryMv();
   uint32_t batteryRangeMv =
       MAIN_POWER_BATTERY_MV_MAX - MAIN_POWER_BATTERY_MV_MIN;
+  uint16_t percentTenths;
+  uint32_t now = HAL_GetTick();
+  static uint16_t filteredPercentTenths = BATTERY_PERCENT_UNINITIALIZED;
+  static uint16_t displayedPercentTenths = BATTERY_PERCENT_UNINITIALIZED;
+  static uint32_t lastDisplayUpdateMs = 0U;
 
   if (batteryMv <= MAIN_POWER_BATTERY_MV_MIN) {
-    return 0U;
-  }
-  if (batteryMv >= MAIN_POWER_BATTERY_MV_MAX) {
-    return 1000U;
-  }
-  if (batteryRangeMv == 0U) {
-    return 0U;
+    percentTenths = 0U;
+  } else if (batteryMv >= MAIN_POWER_BATTERY_MV_MAX) {
+    percentTenths = 1000U;
+  } else if (batteryRangeMv == 0U) {
+    percentTenths = 0U;
+  } else {
+    percentTenths = (uint16_t)((((uint32_t)batteryMv -
+                                 MAIN_POWER_BATTERY_MV_MIN) *
+                                1000U) /
+                               batteryRangeMv);
   }
 
-  return (uint16_t)((((uint32_t)batteryMv - MAIN_POWER_BATTERY_MV_MIN) *
-                     1000U) /
-                    batteryRangeMv);
+  if (filteredPercentTenths == BATTERY_PERCENT_UNINITIALIZED) {
+    filteredPercentTenths = percentTenths;
+    displayedPercentTenths = percentTenths;
+    lastDisplayUpdateMs = now;
+    return displayedPercentTenths;
+  }
+
+  filteredPercentTenths =
+      (uint16_t)((((uint32_t)filteredPercentTenths *
+                   ((1UL << BATTERY_PERCENT_FILTER_SHIFT) - 1UL)) +
+                  percentTenths + (1UL << (BATTERY_PERCENT_FILTER_SHIFT - 1U))) >>
+                 BATTERY_PERCENT_FILTER_SHIFT);
+
+  if (((now - lastDisplayUpdateMs) >= BATTERY_PERCENT_UPDATE_INTERVAL_MS) &&
+      ((filteredPercentTenths >= displayedPercentTenths &&
+        (filteredPercentTenths - displayedPercentTenths) >=
+            BATTERY_PERCENT_DISPLAY_HYSTERESIS_TENTHS) ||
+       (filteredPercentTenths < displayedPercentTenths &&
+        (displayedPercentTenths - filteredPercentTenths) >=
+            BATTERY_PERCENT_DISPLAY_HYSTERESIS_TENTHS))) {
+    displayedPercentTenths = filteredPercentTenths;
+    lastDisplayUpdateMs = now;
+  }
+
+  return displayedPercentTenths;
 }
 
 void Board_EnterStandby(void) {
