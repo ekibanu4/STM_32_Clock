@@ -72,6 +72,10 @@ target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
 )
 target_compile_options(${CMAKE_PROJECT_NAME} PRIVATE
     $<$<CONFIG:Debug>:-Os>
+    -flto
+)
+target_link_options(${CMAKE_PROJECT_NAME} PRIVATE
+    -flto
 )
 
 # Remove wrong libob.a library dependency when using cpp files

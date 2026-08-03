@@ -14,7 +14,7 @@ The CubeMX project is `l010f4p6.ioc`.
 | PA4 | 74HC595 SRCLK / SH_CP | Shift-register shift clock, pin 11 |
 | PA5 | 74HC595 OE / TIM2_CH1 | Active-low output enable PWM, pin 13 |
 | PA6 | Buzzer drive | Active buzzer transistor control |
-| PA7 | Free | Previously used for DHT11 DATA |
+| PA7 | Motion sensor input | High means motion detected, low means idle |
 | PA9 | I2C SCL | Software I2C clock for OLED and AHT10 |
 | PA10 | I2C SDA | Software I2C data for OLED and AHT10 |
 | PB1 | Main power sense ADC | Main VDD sense, `ADC_IN9` |
@@ -101,16 +101,35 @@ Current brightness calibration:
 | Setting | Value |
 | --- | ---: |
 | Lux dark | 5 |
-| Lux bright | 1000 |
+| Lux bright | 400 |
 | Brightness min | 2% |
-| Brightness max | 25% |
-| Brightness levels | 6 |
-| Lux hysteresis | 15 |
+| Brightness max | 50% |
+| Brightness levels | 10 |
+| Lux hysteresis | 5 |
 
 ## Active Buzzer
 
 `PA6` drives the active buzzer circuit through a transistor. The firmware drives
 `PA6` high while the buzzer should sound and low when it should be silent.
+
+## Motion Sensor Idle Display
+
+`PA7` is used as a digital motion sensor input. The sensor output should be
+`0..3.3V`; high means motion is present. After 15 seconds without motion,
+button activity, active setup, or an active alarm, firmware clears the displays,
+turns the buzzer off, disables the 74HC595 OE PWM, and puts external display/I2C
+control pins into analog mode. It does not enter standby in this idle-display
+state.
+
+The idle timer is reset by:
+
+- high level on `PA7`;
+- any button press;
+- active time/date/alarm editing;
+- currently ringing alarm.
+
+When main power is missing, the normal standby path runs first and the motion
+sensor is ignored so it cannot block power-loss handling.
 
 ## Alarms
 
@@ -160,12 +179,13 @@ ADC counts.
 Current threshold:
 
 ```text
-MAIN_POWER_SENSE_MV_MIN = 2300 mV
+MAIN_POWER_SENSE_MV_MIN = 2500 mV
 ```
 
 The main loop enters standby when `PB1` is below the threshold for three
-consecutive checks. Before standby the firmware waits up to `100 ms` for
-`PA0 / WKUP1` to be low.
+consecutive checks. Before standby the firmware powers external devices down,
+then waits up to `25 s` for `PA0 / WKUP1` to be low and debounces that low level
+for `300 ms`.
 
 Expected power-loss flow:
 

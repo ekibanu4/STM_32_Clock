@@ -41,6 +41,7 @@
 #define RTC_REFRESH_INTERVAL_MS 1000U
 #define BLINK_INTERVAL_MS 800U
 #define MAIN_POWER_STANDBY_ENABLED 1U
+#define IDLE_PERIPHERAL_TIMEOUT_MS 15000U
 
 /* USER CODE END PD */
 
@@ -319,12 +320,15 @@ static uint8_t App_Tick(void)
   static uint32_t lastLoopTick = 0U;
   static uint32_t lastRtcRefreshTick = 0U;
   static uint32_t lastBlinkTick = 0U;
+  static uint32_t lastActivityTick = 0U;
   static uint8_t oledAlarmShown = 0U;
   static uint8_t blinkOn = 1U;
+  static uint8_t idlePeripheralsOff = 0U;
   uint32_t now = HAL_GetTick();
   ClockButton_t button = CLOCK_BUTTON_NONE;
   ClockDisplay_t display = {0U, 0U};
   uint8_t alarmAnyEnabled = 0U;
+  uint8_t userActivity = 0U;
 
   if ((now - lastLoopTick) < MAIN_LOOP_DELAY_MS) {
     return 0U;
@@ -355,8 +359,30 @@ static uint8_t App_Tick(void)
   }
 
   AlarmManager_UpdateTrigger(UiController_DateTime());
-  AlarmManager_UpdateBuzzer();
+  userActivity = ((HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_7) == GPIO_PIN_SET) ||
+                  (button != CLOCK_BUTTON_NONE) ||
+                  (UiController_EditTarget() != EDIT_NONE) ||
+                  (AlarmManager_IsBuzzerActive() != 0U))
+                     ? 1U
+                     : 0U;
 
+  if (userActivity != 0U) {
+    lastActivityTick = now;
+    if (idlePeripheralsOff != 0U) {
+      UiController_ShowTimeMode();
+      idlePeripheralsOff = 0U;
+      oledAlarmShown = 0U;
+    }
+  } else if ((idlePeripheralsOff == 0U) &&
+             ((now - lastActivityTick) >= IDLE_PERIPHERAL_TIMEOUT_MS)) {
+    Board_PowerDownIdleDevices();
+    idlePeripheralsOff = 1U;
+    return 1U;
+  } else if (idlePeripheralsOff != 0U) {
+    return 1U;
+  }
+
+  AlarmManager_UpdateBuzzer();
   alarmAnyEnabled = AlarmManager_AnyEnabled();
   Board_SetBrightness(Board_ReadBrightness());
   display = DisplayRenderer_Build(

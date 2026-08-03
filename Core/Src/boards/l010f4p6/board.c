@@ -36,6 +36,8 @@ static uint32_t aht10MeasureStartMs = 0U;
 static uint32_t lastBrightnessReadMs = 0U;
 static uint8_t bh1750Initialized = 0U;
 
+static void Board_PowerDownExternalDevices(uint16_t gpioAPins, uint8_t stopAdc);
+
 static volatile uint32_t *AlarmStorage_BackupRegister(uint8_t registerIndex) {
   switch (registerIndex) {
   case 0U:
@@ -374,6 +376,11 @@ void Board_Init(void) {
   HAL_GPIO_Init(BUZZER_GPIO, &GPIO_InitStruct);
   HAL_GPIO_WritePin(BUZZER_GPIO, BUZZER_PIN, GPIO_PIN_RESET);
 
+  GPIO_InitStruct.Pin = GPIO_PIN_7;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
   BoardI2c_GpioInit();
 
   ShiftRegister_OutputEnablePwmInit(DISPLAY_TEST_BRIGHTNESS);
@@ -393,7 +400,11 @@ void Board_EnterStandby(void) {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
   uint32_t waitStartMs = HAL_GetTick();
 
-  Board_PowerDownExternalDevicesForTest();
+  Board_PowerDownExternalDevices(GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3 |
+                                     GPIO_PIN_4 | GPIO_PIN_5 | GPIO_PIN_6 |
+                                     GPIO_PIN_7 | GPIO_PIN_9 | GPIO_PIN_10 |
+                                     GPIO_PIN_11 | GPIO_PIN_12 | GPIO_PIN_15,
+                                 1U);
 
   while (HAL_GPIO_ReadPin(MAIN_POWER_WAKEUP_GPIO,
                           MAIN_POWER_WAKEUP_GPIO_PIN) == GPIO_PIN_SET) {
@@ -440,7 +451,7 @@ void Board_EnterStandby(void) {
   }
 }
 
-void Board_PowerDownExternalDevicesForTest(void) {
+static void Board_PowerDownExternalDevices(uint16_t gpioAPins, uint8_t stopAdc) {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
 
   Board_WriteDisplay((ClockDisplay_t){0U, 0U});
@@ -453,19 +464,26 @@ void Board_PowerDownExternalDevicesForTest(void) {
   HAL_GPIO_WritePin(SHIFT_REGISTER_OUTPUT_ENABLE_GPIO,
                     SHIFT_REGISTER_OUTPUT_ENABLE_PIN, GPIO_PIN_SET);
 
-  HAL_ADC_Stop(&hadc);
-  HAL_ADCEx_DisableVREFINT();
+  if (stopAdc != 0U) {
+    HAL_ADC_Stop(&hadc);
+    HAL_ADCEx_DisableVREFINT();
+  }
 
   GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Pin = GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3 | GPIO_PIN_4 |
-                        GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7 | GPIO_PIN_9 |
-                        GPIO_PIN_10 | GPIO_PIN_11 | GPIO_PIN_12 |
-                        GPIO_PIN_15;
+  GPIO_InitStruct.Pin = gpioAPins;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-  GPIO_InitStruct.Pin = GPIO_PIN_1;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+  if (stopAdc != 0U) {
+    GPIO_InitStruct.Pin = GPIO_PIN_1;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+  }
+}
+
+void Board_PowerDownIdleDevices(void) {
+  Board_WriteDisplay((ClockDisplay_t){0U, 0U});
+  OledTest_Clear();
+  Board_SetBuzzer(0U);
 }
 
 ClockButton_t Board_ReadButton(void) {

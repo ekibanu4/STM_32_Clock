@@ -320,6 +320,12 @@ void UiController_RefreshDateTime(void) {
     NormalizeDateTime();
 }
 
+void UiController_ShowTimeMode(void) {
+    displayMode = DISPLAY_TIME;
+    editTarget = EDIT_NONE;
+    UiController_RefreshDateTime();
+}
+
 DisplayMode_t UiController_DisplayMode(void) {
     return displayMode;
 }
