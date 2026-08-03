@@ -1,4 +1,4 @@
-#include "oled_test.h"
+#include "oled_128x32.h"
 
 #include "stm32l0xx_hal.h"
 
@@ -549,7 +549,7 @@ static void Oled_GpioInit(void) {
   HAL_GPIO_WritePin(GPIOA, OLED_SCL_PIN | OLED_SDA_PIN, GPIO_PIN_SET);
 }
 
-void OledTest_Init(void) {
+void Oled128x32_Init(void) {
   static const uint8_t initCommands[] = {
       0xAEU, 0x20U, 0x00U, 0x40U, 0xA1U, 0xC8U, 0x81U, 0x7FU,
       0xA6U, 0xA8U, 0x1FU, 0xD3U, 0x00U, 0xD5U, 0x80U, 0xD9U,
@@ -589,13 +589,13 @@ void OledTest_Init(void) {
   Oled_Fill(0x00U);
 }
 
-void OledTest_Clear(void) {
+void Oled128x32_Clear(void) {
   if (oledReady != 0U) {
     Oled_Fill(0x00U);
   }
 }
 
-void OledTest_ShowAlarm(uint8_t alarmSlot) {
+void Oled128x32_ShowAlarm(uint8_t alarmSlot) {
   char text[8] = {'A', 'L', 'A', 'R', 'M', ' ', '?', '\0'};
 
   if (oledReady == 0U) {
@@ -611,7 +611,7 @@ void OledTest_ShowAlarm(uint8_t alarmSlot) {
   oledForceRedraw = 1U;
 }
 
-void OledTest_Render(uint32_t nowMs, DisplayMode_t displayMode,
+void Oled128x32_Render(uint32_t nowMs, DisplayMode_t displayMode,
                      const ClockDateTime_t *dateTime,
                      const ClockEnvironment_t *environment,
                      const AlarmSlot_t *alarmSlots, uint8_t alarmSlotCount,

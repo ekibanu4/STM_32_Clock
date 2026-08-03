@@ -25,7 +25,7 @@
 #include "board.h"
 #include "display_renderer.h"
 #include "environment_manager.h"
-#include "oled_test.h"
+#include "oled_128x32.h"
 #include "ui_controller.h"
 
 /* USER CODE END Includes */
@@ -106,7 +106,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
   (void)App_RTC_Init();
   Board_Init();
-  OledTest_Init();
+  Oled128x32_Init();
 
   UiController_Init();
   AlarmManager_Init();
@@ -395,12 +395,12 @@ static uint8_t App_Tick(void)
 
   if (AlarmManager_IsBuzzerActive() != 0U) {
     if (oledAlarmShown == 0U) {
-      OledTest_ShowAlarm(AlarmManager_ActiveSlot());
+      Oled128x32_ShowAlarm(AlarmManager_ActiveSlot());
       oledAlarmShown = 1U;
     }
   } else if (button == CLOCK_BUTTON_NONE) {
     oledAlarmShown = 0U;
-    OledTest_Render(now, UiController_DisplayMode(), UiController_DateTime(),
+    Oled128x32_Render(now, UiController_DisplayMode(), UiController_DateTime(),
                     EnvironmentManager_Current(), AlarmManager_Slots(),
                     AlarmManager_SlotCount(), AlarmManager_SelectedSlot(),
                     UiController_EditTarget(), alarmAnyEnabled, blinkOn);

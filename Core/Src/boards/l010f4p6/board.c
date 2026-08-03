@@ -1,7 +1,7 @@
 #include "board.h"
 
 #include "board_config.h"
-#include "oled_test.h"
+#include "oled_128x32.h"
 #include "stm32l0xx_ll_adc.h"
 
 #define ALARM_STORAGE_SIZE 16U
@@ -455,7 +455,7 @@ static void Board_PowerDownExternalDevices(uint16_t gpioAPins, uint8_t stopAdc) 
   GPIO_InitTypeDef GPIO_InitStruct = {0};
 
   Board_WriteDisplay((ClockDisplay_t){0U, 0U});
-  OledTest_Clear();
+  Oled128x32_Clear();
   Board_SetBuzzer(0U);
 
   TIM2->CCR1 = 0U;
@@ -482,7 +482,7 @@ static void Board_PowerDownExternalDevices(uint16_t gpioAPins, uint8_t stopAdc) 
 
 void Board_PowerDownIdleDevices(void) {
   Board_WriteDisplay((ClockDisplay_t){0U, 0U});
-  OledTest_Clear();
+  Oled128x32_Clear();
   Board_SetBuzzer(0U);
 }
 
