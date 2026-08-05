@@ -14,6 +14,6 @@ void Oled128x32_Render(uint32_t nowMs, DisplayMode_t displayMode,
                         const AlarmSlot_t *alarmSlots, uint8_t alarmSlotCount,
                         uint8_t selectedAlarmSlot, EditTarget_t editTarget,
                         uint16_t batteryPercentTenths,
-                        uint8_t alarmAnyEnabled, uint8_t blinkOn);
+                        uint8_t alarmAnyEnabled);
 
 #endif /* L010F4P6_OLED_128X32_H_ */

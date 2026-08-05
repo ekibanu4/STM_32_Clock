@@ -139,7 +139,7 @@ still recommended for a stable bus.
 The firmware initializes AHT10 with `0xE1 0x08 0x00`, triggers a measurement
 with `0xAC 0x33 0x00`, waits about 80 ms, then reads 6 bytes and converts the
 20-bit humidity and temperature values. Reads are throttled to no faster than
-once every 2 seconds.
+once every 15 seconds.
 
 In environment display mode, the top/six-hour LEDs show temperature as a binary
 number. The lower humidity LEDs are a scale, not a binary value:
@@ -160,7 +160,7 @@ For example, top `011011` means `27 C`; three lit humidity LEDs means about
 ## BH1750 Light Sensor
 
 The light sensor is now a BH1750 on the shared software I2C bus. Firmware puts
-it into continuous high-resolution mode and reads lux about once per second,
+it into continuous high-resolution mode and reads lux about once every 5 seconds,
 then maps that value to 10 brightness levels with hysteresis. Brightness is
 applied through `PA5 / TIM2_CH1` to the 74HC595 OE pin.
 
@@ -269,7 +269,7 @@ even if that same slot already fired earlier today.
 ## RTC / LSE
 
 Time is read from the internal RTC clocked by an external 32.768 kHz crystal on
-`PC14/PC15`.
+`PC14/PC15`. Firmware refreshes the cached RTC value once per second.
 
 Date setup cycles through day, month, and year. The year is stored in the STM32
 RTC as `00..99` with an implied `20xx` century. While editing the year, the

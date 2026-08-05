@@ -438,7 +438,7 @@ static uint8_t App_Tick(void)
                     EnvironmentManager_Current(), AlarmManager_Slots(),
                     AlarmManager_SlotCount(), AlarmManager_SelectedSlot(),
                     UiController_EditTarget(), batteryPercentTenths,
-                    alarmAnyEnabled, blinkOn);
+                    alarmAnyEnabled);
   }
 
   if (userActivity == 0U) {

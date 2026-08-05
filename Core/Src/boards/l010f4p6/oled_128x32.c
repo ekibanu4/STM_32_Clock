@@ -32,6 +32,7 @@
 #define OLED_I2C_DELAY_CYCLES 8U
 #define OLED_POWER_ON_DELAY_MS 80U
 #define OLED_PROBE_RETRIES 3U
+#define OLED_TEXT_CHUNK_COLUMNS 24U
 
 static uint8_t oledAddress = OLED_ADDR_PRIMARY;
 static uint8_t oledReady = 0U;
@@ -253,23 +254,32 @@ static uint8_t Oled_GlyphColumn(char symbol, uint8_t column) {
 }
 
 static void Oled_WriteText(const char *text, uint8_t page, uint8_t column) {
-  uint8_t data[6];
+  uint8_t data[OLED_TEXT_CHUNK_COLUMNS];
+  uint8_t outIndex = 0U;
 
   if (Oled_SetCursor(page, column) == 0U) {
     return;
   }
 
   while (*text != '\0') {
-    for (uint8_t glyphColumn = 0U; glyphColumn < 5U; ++glyphColumn) {
-      data[glyphColumn] = Oled_GlyphColumn(*text, glyphColumn);
+    if ((outIndex + 6U) > sizeof(data)) {
+      if (Oled_Write(oledAddress, 0x40U, data, outIndex) == 0U) {
+        return;
+      }
+      outIndex = 0U;
     }
-    data[5] = 0x00U;
 
-    if (Oled_Write(oledAddress, 0x40U, data, sizeof(data)) == 0U) {
-      return;
+    for (uint8_t glyphColumn = 0U; glyphColumn < 5U; ++glyphColumn) {
+      data[outIndex] = Oled_GlyphColumn(*text, glyphColumn);
+      ++outIndex;
     }
-    column = (uint8_t)(column + sizeof(data));
+    data[outIndex] = 0x00U;
+    ++outIndex;
     ++text;
+  }
+
+  if (outIndex != 0U) {
+    (void)Oled_Write(oledAddress, 0x40U, data, outIndex);
   }
 }
 
@@ -292,36 +302,23 @@ static void Oled_Fill(uint8_t value) {
   }
 }
 
-static void Oled_ClearTextPages(void) {
-  uint8_t data[16];
-
-  for (uint8_t index = 0U; index < sizeof(data); ++index) {
-    data[index] = 0x00U;
-  }
-
-  for (uint8_t page = 0U; page < OLED_PAGE_COUNT; ++page) {
-    if (Oled_SetCursor(page, 0U) == 0U) {
-      return;
-    }
-    for (uint8_t column = 0U; column < OLED_WIDTH; column += sizeof(data)) {
-      if (Oled_Write(oledAddress, 0x40U, data, sizeof(data)) == 0U) {
-        return;
-      }
-    }
-  }
-}
-
-static void Oled_WriteScaledText(const char *text, uint8_t page,
-                                 uint8_t column) {
-  uint8_t upper[12];
-  uint8_t lower[12];
+static void Oled_WriteScaledTextRow(const char *text, uint8_t page,
+                                    uint8_t column, uint8_t lowerRow) {
+  uint8_t data[OLED_TEXT_CHUNK_COLUMNS];
+  uint8_t outIndex = 0U;
 
   if (Oled_SetCursor(page, column) == 0U) {
     return;
   }
 
   while (*text != '\0') {
-    uint8_t outIndex = 0U;
+    if ((outIndex + 12U) > sizeof(data)) {
+      if (Oled_Write(oledAddress, 0x40U, data, outIndex) == 0U) {
+        return;
+      }
+      outIndex = 0U;
+    }
+
     for (uint8_t glyphColumn = 0U; glyphColumn < 5U; ++glyphColumn) {
       uint8_t source = Oled_GlyphColumn(*text, glyphColumn);
       uint8_t top = 0U;
@@ -344,35 +341,27 @@ static void Oled_WriteScaledText(const char *text, uint8_t page,
         }
       }
 
-      upper[outIndex] = top;
-      lower[outIndex] = bottom;
+      data[outIndex] = (lowerRow == 0U) ? top : bottom;
       ++outIndex;
-      upper[outIndex] = top;
-      lower[outIndex] = bottom;
+      data[outIndex] = (lowerRow == 0U) ? top : bottom;
       ++outIndex;
     }
-    upper[outIndex] = 0x00U;
-    lower[outIndex] = 0x00U;
+    data[outIndex] = 0x00U;
     ++outIndex;
-    upper[outIndex] = 0x00U;
-    lower[outIndex] = 0x00U;
+    data[outIndex] = 0x00U;
     ++outIndex;
-
-    if (Oled_Write(oledAddress, 0x40U, upper, outIndex) == 0U) {
-      return;
-    }
-    if (Oled_SetCursor((uint8_t)(page + 1U), column) == 0U) {
-      return;
-    }
-    if (Oled_Write(oledAddress, 0x40U, lower, outIndex) == 0U) {
-      return;
-    }
-    column = (uint8_t)(column + outIndex);
-    if (Oled_SetCursor(page, column) == 0U) {
-      return;
-    }
     ++text;
   }
+
+  if (outIndex != 0U) {
+    (void)Oled_Write(oledAddress, 0x40U, data, outIndex);
+  }
+}
+
+static void Oled_WriteScaledText(const char *text, uint8_t page,
+                                 uint8_t column) {
+  Oled_WriteScaledTextRow(text, page, column, 0U);
+  Oled_WriteScaledTextRow(text, (uint8_t)(page + 1U), column, 1U);
 }
 
 static void Oled_ShowTime(const ClockDateTime_t *dateTime,
@@ -423,7 +412,7 @@ static void Oled_ShowDate(const ClockDateTime_t *dateTime,
 }
 
 static void Oled_ShowEnvironment(const ClockEnvironment_t *environment) {
-  char text[8] = {'T', '-', '-', ' ', 'H', '-', '-', '\0'};
+  char text[9] = {'T', '-', '-', ' ', 'H', '-', '-', ' ', '\0'};
 
   if (environment->isValid != 0U) {
     text[1] = (char)('0' + ((environment->temperature / 10U) % 10U));
@@ -563,8 +552,7 @@ static void Oled_ShowAlarmEdit(const AlarmSlot_t *alarmSlots,
 }
 
 static void Oled_ShowAlarm(const AlarmSlot_t *alarmSlots, uint8_t alarmSlotCount,
-                           uint8_t selectedAlarmSlot, EditTarget_t editTarget,
-                           uint8_t blinkOn) {
+                           uint8_t selectedAlarmSlot, EditTarget_t editTarget) {
   uint8_t rows = alarmSlotCount;
 
   if (Oled_IsAlarmEdit(editTarget) != 0U) {
@@ -613,8 +601,6 @@ void Oled128x32_Init(void) {
   Oled_GpioInit();
   HAL_Delay(OLED_POWER_ON_DELAY_MS);
   I2cRecoverBus();
-  SdaHigh();
-  SclHigh();
 
   for (uint8_t attempt = 0U; attempt < OLED_PROBE_RETRIES; ++attempt) {
     oledAddress = OLED_ADDR_PRIMARY;
@@ -672,7 +658,7 @@ void Oled128x32_Render(uint32_t nowMs, DisplayMode_t displayMode,
                      const AlarmSlot_t *alarmSlots, uint8_t alarmSlotCount,
                      uint8_t selectedAlarmSlot, EditTarget_t editTarget,
                      uint16_t batteryPercentTenths,
-                     uint8_t alarmAnyEnabled, uint8_t blinkOn) {
+                     uint8_t alarmAnyEnabled) {
   static uint32_t lastDrawMs = 0xFFFFFFFFUL;
   static DisplayMode_t lastDisplayMode = DISPLAY_ALARM;
   static uint8_t lastHour = 0xFFU;
@@ -792,11 +778,11 @@ void Oled128x32_Render(uint32_t nowMs, DisplayMode_t displayMode,
 
   if ((modeChanged != 0U) || (alarmEditStateChanged != 0U)) {
     if ((displayMode == DISPLAY_ALARM) ||
+        (displayMode == DISPLAY_BATTERY) ||
         (previousDisplayMode == DISPLAY_ALARM) ||
+        (previousDisplayMode == DISPLAY_BATTERY) ||
         (Oled_IsAlarmEdit(editTarget) != Oled_IsAlarmEdit(previousEditTarget))) {
       Oled_Fill(0x00U);
-    } else {
-      Oled_ClearTextPages();
     }
   }
 
@@ -805,8 +791,7 @@ void Oled128x32_Render(uint32_t nowMs, DisplayMode_t displayMode,
   } else if (displayMode == DISPLAY_ENVIRONMENT) {
     Oled_ShowEnvironment(environment);
   } else if (displayMode == DISPLAY_ALARM) {
-    Oled_ShowAlarm(alarmSlots, alarmSlotCount, selectedAlarmSlot, editTarget,
-                   blinkOn);
+    Oled_ShowAlarm(alarmSlots, alarmSlotCount, selectedAlarmSlot, editTarget);
   } else if (displayMode == DISPLAY_BATTERY) {
     Oled_ShowBattery(batteryPercentTenths);
   } else {
