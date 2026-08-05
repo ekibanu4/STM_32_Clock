@@ -22,7 +22,6 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "alarm_manager.h"
-#include "app_config.h"
 #include "board.h"
 #include "display_renderer.h"
 #include "environment_manager.h"
@@ -42,9 +41,12 @@
 #define RTC_REFRESH_INTERVAL_MS 1000U
 #define BLINK_INTERVAL_MS 800U
 #define MAIN_POWER_STANDBY_ENABLED 1U
-#define IDLE_PERIPHERAL_TIMEOUT_MS \
-  (((AUTO_TIME_TICKS + AUTO_DATE_TICKS + AUTO_ENVIRONMENT_TICKS) * 1000U) / \
-   UI_TICKS_PER_SECOND)
+#define IDLE_AUTO_MODE_TIME_SEEN 0x01U
+#define IDLE_AUTO_MODE_DATE_SEEN 0x02U
+#define IDLE_AUTO_MODE_ENVIRONMENT_SEEN 0x04U
+#define IDLE_AUTO_MODE_ALL_SEEN \
+  (IDLE_AUTO_MODE_TIME_SEEN | IDLE_AUTO_MODE_DATE_SEEN | \
+   IDLE_AUTO_MODE_ENVIRONMENT_SEEN)
 #define LOW_BATTERY_BLINK_INTERVAL_MS 1000U
 
 /* USER CODE END PD */
@@ -324,14 +326,16 @@ static uint8_t App_Tick(void)
   static uint32_t lastLoopTick = 0U;
   static uint32_t lastRtcRefreshTick = 0U;
   static uint32_t lastBlinkTick = 0U;
-  static uint32_t lastActivityTick = 0U;
+  static DisplayMode_t lastIdleDisplayMode = DISPLAY_TIME;
   static uint8_t oledAlarmShown = 0U;
   static uint8_t blinkOn = 1U;
   static uint8_t idlePeripheralsOff = 0U;
+  static uint8_t idleAutoModeSeenMask = 0U;
   static uint8_t lowBatteryMode = 0U;
   uint32_t now = HAL_GetTick();
   ClockButton_t button = CLOCK_BUTTON_NONE;
   ClockDisplay_t display = {0U, 0U};
+  DisplayMode_t displayMode = DISPLAY_TIME;
   uint16_t batteryPercentTenths = 0U;
   uint8_t alarmAnyEnabled = 0U;
   uint8_t userActivity = 0U;
@@ -367,9 +371,10 @@ static uint8_t App_Tick(void)
   if (lowBatteryMode != 0U) {
     lowBatteryMode = 0U;
     idlePeripheralsOff = 0U;
+    idleAutoModeSeenMask = 0U;
     oledAlarmShown = 0U;
-    lastActivityTick = now;
     UiController_ShowTimeMode();
+    lastIdleDisplayMode = UiController_DisplayMode();
   }
 
   batteryPercentTenths = Board_ReadBatteryPercentTenths();
@@ -382,6 +387,7 @@ static uint8_t App_Tick(void)
   }
 
   UiController_UpdateAutoModeCycle();
+  displayMode = UiController_DisplayMode();
   EnvironmentManager_Update();
 
   if ((now - lastRtcRefreshTick) >= RTC_REFRESH_INTERVAL_MS) {
@@ -398,17 +404,14 @@ static uint8_t App_Tick(void)
                      : 0U;
 
   if (userActivity != 0U) {
-    lastActivityTick = now;
+    idleAutoModeSeenMask = 0U;
+    lastIdleDisplayMode = displayMode;
     if (idlePeripheralsOff != 0U) {
       UiController_ShowTimeMode();
+      lastIdleDisplayMode = UiController_DisplayMode();
       idlePeripheralsOff = 0U;
       oledAlarmShown = 0U;
     }
-  } else if ((idlePeripheralsOff == 0U) &&
-             ((now - lastActivityTick) >= IDLE_PERIPHERAL_TIMEOUT_MS)) {
-    Board_PowerDownIdleDevices();
-    idlePeripheralsOff = 1U;
-    return 1U;
   } else if (idlePeripheralsOff != 0U) {
     return 1U;
   }
@@ -417,7 +420,7 @@ static uint8_t App_Tick(void)
   alarmAnyEnabled = AlarmManager_AnyEnabled();
   Board_SetBrightness(Board_ReadBrightness());
   display = DisplayRenderer_Build(
-      UiController_DisplayMode(), UiController_EditTarget(),
+      displayMode, UiController_EditTarget(),
       UiController_DateTime(), EnvironmentManager_Current(),
       AlarmManager_Slots(), AlarmManager_SlotCount(),
       AlarmManager_SelectedSlot(), batteryPercentTenths, alarmAnyEnabled,
@@ -431,11 +434,33 @@ static uint8_t App_Tick(void)
     }
   } else if (button == CLOCK_BUTTON_NONE) {
     oledAlarmShown = 0U;
-    Oled128x32_Render(now, UiController_DisplayMode(), UiController_DateTime(),
+    Oled128x32_Render(now, displayMode, UiController_DateTime(),
                     EnvironmentManager_Current(), AlarmManager_Slots(),
                     AlarmManager_SlotCount(), AlarmManager_SelectedSlot(),
                     UiController_EditTarget(), batteryPercentTenths,
                     alarmAnyEnabled, blinkOn);
+  }
+
+  if (userActivity == 0U) {
+    if (displayMode != lastIdleDisplayMode) {
+      if (lastIdleDisplayMode == DISPLAY_TIME) {
+        idleAutoModeSeenMask |= IDLE_AUTO_MODE_TIME_SEEN;
+      } else if (lastIdleDisplayMode == DISPLAY_DATE) {
+        idleAutoModeSeenMask |= IDLE_AUTO_MODE_DATE_SEEN;
+      } else if (lastIdleDisplayMode == DISPLAY_ENVIRONMENT) {
+        idleAutoModeSeenMask |= IDLE_AUTO_MODE_ENVIRONMENT_SEEN;
+      } else {
+        idleAutoModeSeenMask = 0U;
+      }
+      lastIdleDisplayMode = displayMode;
+    }
+
+    if ((idleAutoModeSeenMask & IDLE_AUTO_MODE_ALL_SEEN) ==
+        IDLE_AUTO_MODE_ALL_SEEN) {
+      Board_PowerDownIdleDevices();
+      idlePeripheralsOff = 1U;
+      return 1U;
+    }
   }
 
   return 1U;

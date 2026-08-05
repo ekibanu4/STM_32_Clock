@@ -203,11 +203,13 @@ written once with `ALARM n` and normal redraw is skipped until the alarm stops.
 `0..3.3V`; high means motion is present. After one complete automatic display
 cycle without motion, button activity, active setup, or an active alarm, firmware
 clears the displays, turns the buzzer off, disables the 74HC595 OE PWM, and puts
-external display/I2C control pins into analog mode. With the current
-`15s/5s/5s` auto-mode timing this is 25 seconds. It does not enter standby in
-this idle-display state.
+external display/I2C control pins into analog mode. The firmware waits for the
+actual automatic transitions `time -> date -> environment -> time`, so each
+automatic screen is shown before idle display shutdown. With the current
+`15s/5s/5s` auto-mode timing this is about 25 seconds. It does not enter standby
+in this idle-display state.
 
-The idle timer is reset by:
+The idle cycle is reset by:
 
 - high level on `PA7`;
 - any button press;
