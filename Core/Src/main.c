@@ -22,6 +22,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "alarm_manager.h"
+#include "app_config.h"
 #include "board.h"
 #include "display_renderer.h"
 #include "environment_manager.h"
@@ -41,7 +42,9 @@
 #define RTC_REFRESH_INTERVAL_MS 1000U
 #define BLINK_INTERVAL_MS 800U
 #define MAIN_POWER_STANDBY_ENABLED 1U
-#define IDLE_PERIPHERAL_TIMEOUT_MS 15000U
+#define IDLE_PERIPHERAL_TIMEOUT_MS \
+  (((AUTO_TIME_TICKS + AUTO_DATE_TICKS + AUTO_ENVIRONMENT_TICKS) * 1000U) / \
+   UI_TICKS_PER_SECOND)
 #define LOW_BATTERY_BLINK_INTERVAL_MS 1000U
 
 /* USER CODE END PD */
