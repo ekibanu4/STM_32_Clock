@@ -107,18 +107,6 @@ static uint8_t ModeToBoard2Mask(DisplayMode_t displayMode) {
     return 0U;
 }
 
-static uint8_t AlarmSlotLedBit(uint8_t slotIndex) {
-    switch (slotIndex) {
-    case 0U:
-        return CLOCK_BOARD2_MODE_TIME_BIT;
-    case 1U:
-        return CLOCK_BOARD2_MODE_DATE_BIT;
-    case 2U:
-    default:
-        return CLOCK_BOARD2_MODE_ENVIRONMENT_BIT;
-    }
-}
-
 static void AddAlarmStatusToDisplay(DisplayMode_t displayMode,
                                     uint8_t anyAlarmEnabled,
                                     ClockDisplay_t *display) {
@@ -127,32 +115,22 @@ static void AddAlarmStatusToDisplay(DisplayMode_t displayMode,
     }
 }
 
-static void AddDateYearEditMarker(uint8_t blinkOn, ClockDisplay_t *display) {
-    if (blinkOn != 0U) {
+static void AddSelectedAlarmIndicator(const AlarmSlot_t *slot,
+                                      uint8_t selectedAlarmSlot,
+                                      uint8_t showNumber,
+                                      ClockDisplay_t *display) {
+    uint8_t alarmNumber = (uint8_t)(selectedAlarmSlot + 1U);
+
+    if (slot->enabled != 0U) {
         display->board2 |= (uint8_t)(1U << CLOCK_BOARD2_MODE_TIME_BIT);
     }
-}
-
-static void AddAlarmSlotsToDisplay(const AlarmSlot_t *alarmSlots,
-                                   uint8_t alarmSlotCount,
-                                   uint8_t selectedAlarmSlot, uint8_t blinkOn,
-                                   ClockDisplay_t *display) {
-    for (uint8_t slotIndex = 0U; slotIndex < alarmSlotCount; ++slotIndex) {
-        uint8_t bitMask = (uint8_t)(1U << AlarmSlotLedBit(slotIndex));
-        uint8_t isSelected = (slotIndex == selectedAlarmSlot);
-        uint8_t isEnabled = alarmSlots[slotIndex].enabled;
-        uint8_t isConfigured = alarmSlots[slotIndex].configured;
-
-        if (isEnabled != 0U) {
-            if ((isSelected == 0U) || (blinkOn != 0U)) {
-                display->board2 |= bitMask;
-            }
-        } else if ((isConfigured != 0U) && (isSelected != 0U) &&
-                   (blinkOn != 0U)) {
-            display->board2 |= bitMask;
-        } else if ((isConfigured == 0U) && (isSelected != 0U) &&
-                   (blinkOn != 0U)) {
-            display->board2 |= bitMask;
+    if (showNumber != 0U) {
+        if ((alarmNumber & 1U) != 0U) {
+            display->board2 |=
+                (uint8_t)(1U << CLOCK_BOARD2_MODE_ENVIRONMENT_BIT);
+        }
+        if ((alarmNumber & 2U) != 0U) {
+            display->board2 |= (uint8_t)(1U << CLOCK_BOARD2_MODE_DATE_BIT);
         }
     }
 }
@@ -196,7 +174,6 @@ BuildEnvironmentDisplay(const ClockEnvironment_t *environment,
 
 static ClockDisplay_t BuildAlarmDisplay(EditTarget_t editTarget,
                                         const AlarmSlot_t *alarmSlots,
-                                        uint8_t alarmSlotCount,
                                         uint8_t selectedAlarmSlot,
                                         uint8_t alarmErrorActive,
                                         uint8_t blinkOn) {
@@ -204,8 +181,11 @@ static ClockDisplay_t BuildAlarmDisplay(EditTarget_t editTarget,
     ClockDisplay_t display = {0U, 0U};
 
     AddAlarmStatusToDisplay(DISPLAY_ALARM, 1U, &display);
-    AddAlarmSlotsToDisplay(alarmSlots, alarmSlotCount, selectedAlarmSlot,
-                           blinkOn, &display);
+    AddSelectedAlarmIndicator(slot, selectedAlarmSlot,
+                              ((editTarget == EDIT_NONE) || (blinkOn != 0U))
+                                  ? 1U
+                                  : 0U,
+                              &display);
 
     if ((alarmErrorActive != 0U) && (blinkOn != 0U)) {
         display.board1 = 0xFFU;
@@ -217,18 +197,12 @@ static ClockDisplay_t BuildAlarmDisplay(EditTarget_t editTarget,
     }
 
     if (editTarget == EDIT_ALARM_HOURS) {
-        if (blinkOn != 0U) {
-            display.board1 = HoursToBoard1Mask(slot->hour);
-        }
-        AddMinutesToDisplay(slot->minute, &display);
+        display.board1 = HoursToBoard1Mask(slot->hour);
         return display;
     }
 
     if (editTarget == EDIT_ALARM_MINUTES) {
-        display.board1 = HoursToBoard1Mask(slot->hour);
-        if (blinkOn != 0U) {
-            AddMinutesToDisplay(slot->minute, &display);
-        }
+        AddMinutesToDisplay(slot->minute, &display);
         return display;
     }
 
@@ -258,11 +232,18 @@ static ClockDisplay_t BuildEditDisplay(DisplayMode_t displayMode,
                                        uint8_t anyAlarmEnabled,
                                        uint8_t blinkOn) {
     ClockDisplay_t display = {0U, ModeToBoard2Mask(displayMode)};
+    uint8_t modeBit = 0xFFU;
 
     AddAlarmStatusToDisplay(displayMode, anyAlarmEnabled, &display);
 
-    if ((blinkOn == 0U) && (editTarget != EDIT_YEAR)) {
-        return display;
+    if (displayMode == DISPLAY_TIME) {
+        modeBit = CLOCK_BOARD2_MODE_TIME_BIT;
+    } else if (displayMode == DISPLAY_DATE) {
+        modeBit = CLOCK_BOARD2_MODE_DATE_BIT;
+    }
+
+    if ((modeBit != 0xFFU) && (blinkOn == 0U)) {
+        display.board2 &= (uint8_t) ~(1U << modeBit);
     }
 
     switch (editTarget) {
@@ -280,10 +261,7 @@ static ClockDisplay_t BuildEditDisplay(DisplayMode_t displayMode,
         break;
     case EDIT_YEAR:
         display.board1 = HoursToBoard1Mask(20U);
-        if (blinkOn != 0U) {
-            AddMinutesToDisplay(dateTime->year, &display);
-        }
-        AddDateYearEditMarker(blinkOn, &display);
+        AddMinutesToDisplay(dateTime->year, &display);
         break;
     case EDIT_NONE:
     default:
@@ -307,8 +285,8 @@ ClockDisplay_t DisplayRenderer_Build(DisplayMode_t displayMode,
     ClockDisplay_t display = {0U, 0U};
 
     if (displayMode == DISPLAY_ALARM) {
-        return BuildAlarmDisplay(editTarget, alarmSlots, alarmSlotCount,
-                                 selectedAlarmSlot, alarmErrorActive, blinkOn);
+        return BuildAlarmDisplay(editTarget, alarmSlots, selectedAlarmSlot,
+                                 alarmErrorActive, blinkOn);
     }
 
     if (displayMode == DISPLAY_BATTERY) {

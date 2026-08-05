@@ -95,6 +95,9 @@ static void HandleModeButton(void) {
         displayMode = DISPLAY_ENVIRONMENT;
     } else if (displayMode == DISPLAY_ENVIRONMENT) {
         displayMode = DISPLAY_ALARM;
+        while (AlarmManager_SelectedSlot() != 0U) {
+            AlarmManager_SelectPreviousSlot();
+        }
     } else if (displayMode == DISPLAY_ALARM) {
         displayMode = DISPLAY_BATTERY;
     } else {
@@ -173,7 +176,7 @@ static void HandleUpButton(void) {
     case EDIT_NONE:
     default:
         if (displayMode == DISPLAY_ALARM) {
-            AlarmManager_SelectNextSlot();
+            AlarmManager_SelectPreviousSlot();
         }
         break;
     }
@@ -225,7 +228,7 @@ static void HandleDownButton(void) {
     case EDIT_NONE:
     default:
         if (displayMode == DISPLAY_ALARM) {
-            AlarmManager_SelectPreviousSlot();
+            AlarmManager_SelectNextSlot();
         }
         break;
     }

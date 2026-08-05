@@ -144,6 +144,33 @@ static uint16_t MainPower_ReadBatteryMv(void) {
                     MAIN_POWER_SENSE_ADC_CAL_MV);
 }
 
+static uint16_t BatteryPercentTenthsFromMv(uint16_t batteryMv) {
+  static const uint16_t mv[] = {4100U, 3800U, 3700U, 3600U, 3500U, 3400U,
+                                3300U, 3200U, 3100U, 2900U};
+  static const uint16_t pct[] = {1000U, 900U, 820U, 730U, 620U, 500U,
+                                 360U, 220U, 100U, 0U};
+
+  if (batteryMv >= mv[0]) {
+    return pct[0];
+  }
+
+  for (uint8_t index = 0U; index < ((sizeof(mv) / sizeof(mv[0])) - 1U);
+       ++index) {
+    if (batteryMv >= mv[index + 1U]) {
+      uint16_t highMv = mv[index];
+      uint16_t lowMv = mv[index + 1U];
+      uint16_t highPct = pct[index];
+      uint16_t lowPct = pct[index + 1U];
+      return (uint16_t)(lowPct +
+                        (((uint32_t)batteryMv - lowMv) *
+                         (highPct - lowPct)) /
+                            (highMv - lowMv));
+    }
+  }
+
+  return pct[(sizeof(pct) / sizeof(pct[0])) - 1U];
+}
+
 static void BoardI2c_Delay(void) {
   for (volatile uint8_t index = 0U; index < BOARD_I2C_DELAY_CYCLES; ++index) {
   }
@@ -414,38 +441,47 @@ uint8_t Board_IsWakePowerPresent(void) {
 }
 
 uint8_t Board_IsBatteryAboveLowThreshold(void) {
+  static uint8_t batteryLow = 0U;
+  uint8_t aboveSamples = 0U;
+  uint8_t belowSamples = 0U;
+
   for (uint8_t sample = 0U; sample < MAIN_POWER_CONFIRM_SAMPLES; ++sample) {
-    if (MainPower_ReadBatteryMv() >= MAIN_POWER_BATTERY_MV_MIN) {
-      return 1U;
+    uint16_t batteryMv = MainPower_ReadBatteryMv();
+    if (batteryMv >= MAIN_POWER_BATTERY_MV_RECOVER) {
+      ++aboveSamples;
+    }
+    if (batteryMv < MAIN_POWER_BATTERY_MV_MIN) {
+      ++belowSamples;
     }
   }
-  return 0U;
+
+  if (batteryLow != 0U) {
+    if (aboveSamples >= MAIN_POWER_CONFIRM_SAMPLES) {
+      batteryLow = 0U;
+    }
+  } else if (belowSamples >= MAIN_POWER_CONFIRM_SAMPLES) {
+    batteryLow = 1U;
+  }
+
+  return (batteryLow == 0U) ? 1U : 0U;
 }
 
 uint16_t Board_ReadBatteryPercentTenths(void) {
   uint16_t batteryMv = MainPower_ReadBatteryMv();
-  uint32_t batteryRangeMv =
-      MAIN_POWER_BATTERY_MV_MAX - MAIN_POWER_BATTERY_MV_MIN;
-  uint16_t percentTenths;
+  uint16_t percentTenths = BatteryPercentTenthsFromMv(batteryMv);
   uint32_t now = HAL_GetTick();
   static uint16_t filteredPercentTenths = BATTERY_PERCENT_UNINITIALIZED;
   static uint16_t displayedPercentTenths = BATTERY_PERCENT_UNINITIALIZED;
   static uint32_t lastDisplayUpdateMs = 0U;
 
-  if (batteryMv <= MAIN_POWER_BATTERY_MV_MIN) {
-    percentTenths = 0U;
-  } else if (batteryMv >= MAIN_POWER_BATTERY_MV_MAX) {
-    percentTenths = 1000U;
-  } else if (batteryRangeMv == 0U) {
-    percentTenths = 0U;
-  } else {
-    percentTenths = (uint16_t)((((uint32_t)batteryMv -
-                                 MAIN_POWER_BATTERY_MV_MIN) *
-                                1000U) /
-                               batteryRangeMv);
+  if (filteredPercentTenths == BATTERY_PERCENT_UNINITIALIZED) {
+    filteredPercentTenths = percentTenths;
+    displayedPercentTenths = percentTenths;
+    lastDisplayUpdateMs = now;
+    return displayedPercentTenths;
   }
 
-  if (filteredPercentTenths == BATTERY_PERCENT_UNINITIALIZED) {
+  if ((percentTenths == 0U) || (percentTenths == 1000U)) {
     filteredPercentTenths = percentTenths;
     displayedPercentTenths = percentTenths;
     lastDisplayUpdateMs = now;
