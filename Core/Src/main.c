@@ -352,6 +352,16 @@ static uint8_t App_Tick(void)
   }
 #endif
 
+  button = Board_ReadButton();
+  UiController_UpdateButton(button, now);
+
+  if ((now - lastRtcRefreshTick) >= RTC_REFRESH_INTERVAL_MS) {
+    UiController_RefreshDateTime();
+    lastRtcRefreshTick = now;
+  }
+
+  AlarmManager_UpdateTrigger(UiController_DateTime());
+
   if (Board_IsBatteryAboveLowThreshold() == 0U) {
     if (lowBatteryMode == 0U) {
       Board_PowerDownIdleDevices();
@@ -359,6 +369,7 @@ static uint8_t App_Tick(void)
       blinkOn = 0U;
       lastBlinkTick = now;
     }
+    AlarmManager_UpdateBuzzer();
     if ((now - lastBlinkTick) >= LOW_BATTERY_BLINK_INTERVAL_MS) {
       blinkOn = (blinkOn == 0U) ? 1U : 0U;
       lastBlinkTick = now;
@@ -367,6 +378,13 @@ static uint8_t App_Tick(void)
     }
     return 1U;
   }
+
+  if ((now - lastBlinkTick) >= BLINK_INTERVAL_MS) {
+    blinkOn = (blinkOn == 0U) ? 1U : 0U;
+    lastBlinkTick = now;
+  }
+
+  displayMode = UiController_DisplayMode();
 
   if (lowBatteryMode != 0U) {
     lowBatteryMode = 0U;
@@ -377,22 +395,6 @@ static uint8_t App_Tick(void)
     lastIdleDisplayMode = UiController_DisplayMode();
   }
 
-  button = Board_ReadButton();
-  UiController_UpdateButton(button, now);
-
-  if ((now - lastBlinkTick) >= BLINK_INTERVAL_MS) {
-    blinkOn = (blinkOn == 0U) ? 1U : 0U;
-    lastBlinkTick = now;
-  }
-
-  displayMode = UiController_DisplayMode();
-
-  if ((now - lastRtcRefreshTick) >= RTC_REFRESH_INTERVAL_MS) {
-    UiController_RefreshDateTime();
-    lastRtcRefreshTick = now;
-  }
-
-  AlarmManager_UpdateTrigger(UiController_DateTime());
   userActivity = ((HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_7) == GPIO_PIN_SET) ||
                   (button != CLOCK_BUTTON_NONE) ||
                   (UiController_EditTarget() != EDIT_NONE) ||
