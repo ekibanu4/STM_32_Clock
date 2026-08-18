@@ -61,6 +61,22 @@ the lower row.
 ## Buttons ADC Ladder
 
 The five buttons are read through one resistor ladder on `PA1 / ADC_IN1`.
+The ADC node is pulled up to `3.3V` through `10k`; each button connects the
+same `PA1` node to `GND` through its own resistor:
+
+```text
+3.3V -- 10k -- PA1 / ADC_IN1
+                 |
+                 +-- MODE -- 1k   -- GND
+                 +-- SET  -- 2k   -- GND
+                 +-- UP   -- 4.7k -- GND
+                 +-- DOWN -- 10k  -- GND
+                 +-- OFF  -- 20k  -- GND
+```
+
+With no button pressed, `PA1` stays near `3.3V` and the ADC value is treated as
+no button. Pressing a button pulls `PA1` lower; smaller resistor means lower ADC
+value.
 
 Current thresholds:
 
