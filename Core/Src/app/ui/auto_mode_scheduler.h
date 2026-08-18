@@ -7,7 +7,7 @@
 
 void AutoModeScheduler_Reset(void);
 void AutoModeScheduler_PauseForUserActivity(void);
-uint8_t AutoModeScheduler_Update(DisplayMode_t *displayMode,
-                                 EditTarget_t *editTarget);
+void AutoModeScheduler_Update(DisplayMode_t *displayMode,
+                              EditTarget_t *editTarget);
 
 #endif /* AUTO_MODE_SCHEDULER_H_ */

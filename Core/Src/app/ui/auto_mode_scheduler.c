@@ -35,31 +35,26 @@ void AutoModeScheduler_PauseForUserActivity(void) {
     userPauseTicks = AUTO_USER_PAUSE_TICKS;
 }
 
-uint8_t AutoModeScheduler_Update(DisplayMode_t *displayMode,
-                                 EditTarget_t *editTarget) {
+void AutoModeScheduler_Update(DisplayMode_t *displayMode,
+                              EditTarget_t *editTarget) {
+    if (*editTarget != EDIT_NONE) {
+        return;
+    }
+
     if (userPauseTicks > 0U) {
         --userPauseTicks;
         if (userPauseTicks == 0U) {
-            *editTarget = EDIT_NONE;
-            *displayMode = DISPLAY_TIME;
-            autoModeTicks = 0U;
-            return 1U;
+            AdvanceAutoMode(displayMode);
         }
-        return 0U;
-    }
-
-    if (*editTarget != EDIT_NONE) {
-        return 0U;
+        return;
     }
 
     if (*displayMode == DISPLAY_ALARM) {
-        return 0U;
+        return;
     }
 
     ++autoModeTicks;
     if (autoModeTicks >= AutoModeDurationTicks(*displayMode)) {
         AdvanceAutoMode(displayMode);
     }
-
-    return 0U;
 }

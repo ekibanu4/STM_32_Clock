@@ -15,6 +15,7 @@ static uint32_t offButtonHoldStartMs = 0U;
 static uint8_t offButtonHoldActive = 0U;
 static uint8_t offLongPressHandled = 0U;
 static uint32_t alarmErrorTicks = 0U;
+static uint32_t editIdleStartMs = 0U;
 
 static uint8_t MonthDays(uint8_t month, uint8_t year) {
     switch (month) {
@@ -239,6 +240,7 @@ static void HandleOffButton(void) {
     if (displayMode == DISPLAY_ALARM) {
         if (editTarget != EDIT_NONE) {
             editTarget = EDIT_NONE;
+            editIdleStartMs = 0U;
             return;
         }
 
@@ -249,12 +251,11 @@ static void HandleOffButton(void) {
     }
 
     editTarget = EDIT_NONE;
+    editIdleStartMs = 0U;
     UiController_RefreshDateTime();
 }
 
 static void HandleButton(ClockButton_t button) {
-    AutoModeScheduler_PauseForUserActivity();
-
     switch (button) {
     case CLOCK_BUTTON_MODE:
         HandleModeButton();
@@ -287,6 +288,10 @@ void UiController_UpdateButton(ClockButton_t pressedButton, uint32_t nowMs) {
         --alarmErrorTicks;
     }
 
+    if (pressedButton != CLOCK_BUTTON_NONE) {
+        AutoModeScheduler_PauseForUserActivity();
+    }
+
     if (pressedButton == CLOCK_BUTTON_OFF) {
         if (offButtonHoldActive == 0U) {
             offButtonHoldStartMs = nowMs;
@@ -294,7 +299,6 @@ void UiController_UpdateButton(ClockButton_t pressedButton, uint32_t nowMs) {
         }
         if (((uint32_t)(nowMs - offButtonHoldStartMs) >= OFF_LONG_PRESS_MS) &&
             (offLongPressHandled == 0U)) {
-            AutoModeScheduler_PauseForUserActivity();
             AlarmManager_ToggleAll();
             editTarget = EDIT_NONE;
             offLongPressHandled = 1U;
@@ -311,13 +315,17 @@ void UiController_UpdateButton(ClockButton_t pressedButton, uint32_t nowMs) {
         (pressedButton != CLOCK_BUTTON_OFF) && (pressedButton != lastButton)) {
         HandleButton(pressedButton);
     }
+    if ((editTarget == EDIT_NONE) || (pressedButton != CLOCK_BUTTON_NONE)) {
+        editIdleStartMs = nowMs;
+    } else if ((uint32_t)(nowMs - editIdleStartMs) >= EDIT_IDLE_TIMEOUT_MS) {
+        HandleOffButton();
+        AutoModeScheduler_PauseForUserActivity();
+    }
     lastButton = pressedButton;
 }
 
 void UiController_UpdateAutoModeCycle(void) {
-    if (AutoModeScheduler_Update(&displayMode, &editTarget) != 0U) {
-        UiController_RefreshDateTime();
-    }
+    AutoModeScheduler_Update(&displayMode, &editTarget);
 }
 
 void UiController_RefreshDateTime(void) {

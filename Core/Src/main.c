@@ -377,7 +377,6 @@ static uint8_t App_Tick(void)
     lastIdleDisplayMode = UiController_DisplayMode();
   }
 
-  batteryPercentTenths = Board_ReadBatteryPercentTenths();
   button = Board_ReadButton();
   UiController_UpdateButton(button, now);
 
@@ -386,9 +385,7 @@ static uint8_t App_Tick(void)
     lastBlinkTick = now;
   }
 
-  UiController_UpdateAutoModeCycle();
   displayMode = UiController_DisplayMode();
-  EnvironmentManager_Update();
 
   if ((now - lastRtcRefreshTick) >= RTC_REFRESH_INTERVAL_MS) {
     UiController_RefreshDateTime();
@@ -416,6 +413,11 @@ static uint8_t App_Tick(void)
     return 1U;
   }
 
+  batteryPercentTenths = Board_ReadBatteryPercentTenths();
+  UiController_UpdateAutoModeCycle();
+  displayMode = UiController_DisplayMode();
+  EnvironmentManager_Update();
+
   AlarmManager_UpdateBuzzer();
   alarmAnyEnabled = AlarmManager_AnyEnabled();
   Board_SetBrightness(Board_ReadBrightness());
@@ -432,7 +434,7 @@ static uint8_t App_Tick(void)
       Oled128x32_ShowAlarm(AlarmManager_ActiveSlot());
       oledAlarmShown = 1U;
     }
-  } else if (button == CLOCK_BUTTON_NONE) {
+  } else {
     oledAlarmShown = 0U;
     Oled128x32_Render(now, displayMode, UiController_DateTime(),
                     EnvironmentManager_Current(), AlarmManager_Slots(),

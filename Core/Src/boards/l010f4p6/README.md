@@ -122,10 +122,15 @@ Button behavior by mode:
 | DOWN | decrement edited value | decrement edited value | no action | when not editing: next slot; when editing: decrement value | no action |
 | OFF | exit editing | exit editing | no action | toggle/exit alarm editing | no action |
 
-After user activity, automatic cycling is paused for 30 seconds. When this pause
-expires, firmware returns to time mode.
+After user activity, automatic cycling is paused for 30 seconds on the current
+screen. If a button is held, the 30-second pause starts after the button is
+released. When this pause expires, firmware advances to the next automatic
+display mode.
 
 ### Time And Date Editing
+
+Setup modes exit automatically after 60 seconds without button activity, the
+same as pressing `OFF`.
 
 In time setup, `SET` cycles `minutes -> hours -> minutes`. On the 74HC595
 display only the time mode LED blinks; the edited row stays steadily lit.
