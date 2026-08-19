@@ -48,6 +48,10 @@
   (IDLE_AUTO_MODE_TIME_SEEN | IDLE_AUTO_MODE_DATE_SEEN | \
    IDLE_AUTO_MODE_ENVIRONMENT_SEEN)
 #define LOW_BATTERY_BLINK_INTERVAL_MS 1000U
+#define APP_MSI_ACTIVE_RANGE RCC_ICSCR_MSIRANGE_6
+#define APP_MSI_ACTIVE_HZ 4194304UL
+#define APP_MSI_IDLE_RANGE RCC_ICSCR_MSIRANGE_5
+#define APP_MSI_IDLE_HZ 2097152UL
 
 /* USER CODE END PD */
 
@@ -57,8 +61,6 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-ADC_HandleTypeDef hadc;
-
 /* USER CODE BEGIN PV */
 RTC_HandleTypeDef hrtc;
 
@@ -71,6 +73,7 @@ static void MX_ADC_Init(void);
 /* USER CODE BEGIN PFP */
 static uint8_t App_RTC_Init(void);
 static uint8_t App_Tick(void);
+static void App_SetMsiClock(uint32_t msiRange, uint32_t coreClockHz);
 
 /* USER CODE END PFP */
 
@@ -93,7 +96,11 @@ int main(void)
   /* MCU Configuration--------------------------------------------------------*/
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-  HAL_Init();
+  if (HAL_InitTick(TICK_INT_PRIORITY) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  HAL_MspInit();
 
   /* USER CODE BEGIN Init */
 
@@ -139,39 +146,13 @@ int main(void)
   */
 void SystemClock_Config(void)
 {
-  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
-  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
-
   /** Configure the main internal regulator output voltage
   */
   __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
 
-  /** Initializes the RCC Oscillators according to the specified parameters
-  * in the RCC_OscInitTypeDef structure.
-  */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_MSI;
-  RCC_OscInitStruct.MSIState = RCC_MSI_ON;
-  RCC_OscInitStruct.MSICalibrationValue = 0;
-  RCC_OscInitStruct.MSIClockRange = RCC_MSIRANGE_6;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
-  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Initializes the CPU, AHB and APB buses clocks
-  */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_MSI;
-  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
-  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
-
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
-  {
-    Error_Handler();
-  }
+  RCC->CFGR &= ~(RCC_CFGR_SW | RCC_CFGR_HPRE | RCC_CFGR_PPRE1 |
+                 RCC_CFGR_PPRE2);
+  App_SetMsiClock(APP_MSI_ACTIVE_RANGE, APP_MSI_ACTIVE_HZ);
 }
 
 /**
@@ -181,60 +162,25 @@ void SystemClock_Config(void)
   */
 static void MX_ADC_Init(void)
 {
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
 
-  /* USER CODE BEGIN ADC_Init 0 */
+  __HAL_RCC_ADC1_CLK_ENABLE();
+  __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
 
-  /* USER CODE END ADC_Init 0 */
+  GPIO_InitStruct.Pin = GPIO_PIN_1;
+  GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
-  ADC_ChannelConfTypeDef sConfig = {0};
-
-  /* USER CODE BEGIN ADC_Init 1 */
-
-  /* USER CODE END ADC_Init 1 */
-
-  /** Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
-  */
-  hadc.Instance = ADC1;
-  hadc.Init.OversamplingMode = DISABLE;
-  hadc.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV1;
-  hadc.Init.Resolution = ADC_RESOLUTION_12B;
-  hadc.Init.SamplingTime = ADC_SAMPLETIME_7CYCLES_5;
-  hadc.Init.ScanConvMode = ADC_SCAN_DIRECTION_FORWARD;
-  hadc.Init.DataAlign = ADC_DATAALIGN_RIGHT;
-  hadc.Init.ContinuousConvMode = DISABLE;
-  hadc.Init.DiscontinuousConvMode = DISABLE;
-  hadc.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
-  hadc.Init.ExternalTrigConv = ADC_SOFTWARE_START;
-  hadc.Init.DMAContinuousRequests = DISABLE;
-  hadc.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
-  hadc.Init.Overrun = ADC_OVR_DATA_PRESERVED;
-  hadc.Init.LowPowerAutoWait = DISABLE;
-  hadc.Init.LowPowerFrequencyMode = ENABLE;
-  hadc.Init.LowPowerAutoPowerOff = DISABLE;
-  if (HAL_ADC_Init(&hadc) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configure for the selected ADC regular channel to be converted.
-  */
-  sConfig.Channel = ADC_CHANNEL_1;
-  sConfig.Rank = ADC_RANK_CHANNEL_NUMBER;
-  if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configure for the selected ADC regular channel to be converted.
-  */
-  sConfig.Channel = ADC_CHANNEL_9;
-  if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN ADC_Init 2 */
-
-  /* USER CODE END ADC_Init 2 */
+  ADC1_COMMON->CCR = (ADC1_COMMON->CCR & ~(ADC_CCR_PRESC | ADC_CCR_LFMEN)) |
+                     ADC_CCR_LFMEN;
+  ADC1->CR |= ADC_CR_ADVREGEN;
+  ADC1->CFGR1 = 0U;
+  ADC1->CFGR2 = ADC_CFGR2_CKMODE;
+  ADC1->SMPR = ADC_SMPR_SMPR_1;
+  ADC1->CHSELR = ADC_CHSELR_CHSEL1 | ADC_CHSELR_CHSEL9;
 
 }
 
@@ -279,6 +225,35 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+HAL_StatusTypeDef HAL_InitTick(uint32_t TickPriority)
+{
+  if (TickPriority < (1UL << __NVIC_PRIO_BITS)) {
+    uwTickPrio = TickPriority;
+  }
+
+  SysTick->LOAD = (SystemCoreClock / 1000U) - 1UL;
+  SysTick->VAL = 0UL;
+  SysTick->CTRL = SysTick_CTRL_CLKSOURCE_Msk | SysTick_CTRL_TICKINT_Msk |
+                  SysTick_CTRL_ENABLE_Msk;
+  return HAL_OK;
+}
+
+static void App_SetMsiClock(uint32_t msiRange, uint32_t coreClockHz)
+{
+  RCC->CR |= RCC_CR_MSION;
+  while ((RCC->CR & RCC_CR_MSIRDY) == 0U) {
+  }
+
+  RCC->ICSCR = (RCC->ICSCR & ~RCC_ICSCR_MSIRANGE) | msiRange;
+  while ((RCC->CR & RCC_CR_MSIRDY) == 0U) {
+  }
+
+  SystemCoreClock = coreClockHz;
+  if (HAL_InitTick(TICK_INT_PRIORITY) != HAL_OK) {
+    Error_Handler();
+  }
+}
+
 static uint8_t App_RTC_Init(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
@@ -332,6 +307,7 @@ static uint8_t App_Tick(void)
   static uint8_t idlePeripheralsOff = 0U;
   static uint8_t idleAutoModeSeenMask = 0U;
   static uint8_t lowBatteryMode = 0U;
+  static uint8_t alarmButtonReleasePending = 0U;
   uint32_t now = HAL_GetTick();
   ClockButton_t button = CLOCK_BUTTON_NONE;
   ClockDisplay_t display = {0U, 0U};
@@ -339,6 +315,7 @@ static uint8_t App_Tick(void)
   uint16_t batteryPercentTenths = 0U;
   uint8_t alarmAnyEnabled = 0U;
   uint8_t userActivity = 0U;
+  uint8_t buttonActivity = 0U;
 
   if ((now - lastLoopTick) < MAIN_LOOP_DELAY_MS) {
     return 0U;
@@ -352,15 +329,25 @@ static uint8_t App_Tick(void)
   }
 #endif
 
-  button = Board_ReadButton();
-  UiController_UpdateButton(button, now);
-
   if ((now - lastRtcRefreshTick) >= RTC_REFRESH_INTERVAL_MS) {
     UiController_RefreshDateTime();
     lastRtcRefreshTick = now;
   }
 
   AlarmManager_UpdateTrigger(UiController_DateTime());
+
+  button = Board_ReadButton();
+  buttonActivity = (button != CLOCK_BUTTON_NONE) ? 1U : 0U;
+  if (buttonActivity == 0U) {
+    alarmButtonReleasePending = 0U;
+  } else if (AlarmManager_IsBuzzerActive() != 0U) {
+    AlarmManager_StopBuzzer();
+    alarmButtonReleasePending = 1U;
+    button = CLOCK_BUTTON_NONE;
+  } else if (alarmButtonReleasePending != 0U) {
+    button = CLOCK_BUTTON_NONE;
+  }
+  UiController_UpdateButton(button, now);
 
   if (Board_IsBatteryAboveLowThreshold() == 0U) {
     if (lowBatteryMode == 0U) {
@@ -388,6 +375,7 @@ static uint8_t App_Tick(void)
 
   if (lowBatteryMode != 0U) {
     lowBatteryMode = 0U;
+    App_SetMsiClock(APP_MSI_ACTIVE_RANGE, APP_MSI_ACTIVE_HZ);
     idlePeripheralsOff = 0U;
     idleAutoModeSeenMask = 0U;
     oledAlarmShown = 0U;
@@ -396,7 +384,7 @@ static uint8_t App_Tick(void)
   }
 
   userActivity = ((HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_7) == GPIO_PIN_SET) ||
-                  (button != CLOCK_BUTTON_NONE) ||
+                  (buttonActivity != 0U) ||
                   (UiController_EditTarget() != EDIT_NONE) ||
                   (AlarmManager_IsBuzzerActive() != 0U))
                      ? 1U
@@ -406,6 +394,7 @@ static uint8_t App_Tick(void)
     idleAutoModeSeenMask = 0U;
     lastIdleDisplayMode = displayMode;
     if (idlePeripheralsOff != 0U) {
+      App_SetMsiClock(APP_MSI_ACTIVE_RANGE, APP_MSI_ACTIVE_HZ);
       UiController_ShowTimeMode();
       lastIdleDisplayMode = UiController_DisplayMode();
       idlePeripheralsOff = 0U;
@@ -462,6 +451,7 @@ static uint8_t App_Tick(void)
     if ((idleAutoModeSeenMask & IDLE_AUTO_MODE_ALL_SEEN) ==
         IDLE_AUTO_MODE_ALL_SEEN) {
       Board_PowerDownIdleDevices();
+      App_SetMsiClock(APP_MSI_IDLE_RANGE, APP_MSI_IDLE_HZ);
       idlePeripheralsOff = 1U;
       return 1U;
     }

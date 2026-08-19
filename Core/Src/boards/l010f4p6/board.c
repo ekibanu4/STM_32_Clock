@@ -28,7 +28,6 @@
 #define BH1750_READ_INTERVAL_MS 5000U
 #define BOARD_I2C_DELAY_CYCLES 8U
 
-extern ADC_HandleTypeDef hadc;
 extern RTC_HandleTypeDef hrtc;
 
 static uint8_t currentBrightness = DISPLAY_TEST_BRIGHTNESS;
@@ -39,8 +38,10 @@ static uint8_t aht10MeasurePending = 0U;
 static uint32_t aht10MeasureStartMs = 0U;
 static uint32_t lastBrightnessReadMs = 0U;
 static uint8_t bh1750Initialized = 0U;
+static uint8_t adcCalibrated = 0U;
 
 static void Board_PowerDownExternalDevices(uint16_t gpioAPins, uint8_t stopAdc);
+static void ADC_Shutdown(void);
 
 static volatile uint32_t *AlarmStorage_BackupRegister(uint8_t registerIndex) {
   switch (registerIndex) {
@@ -90,27 +91,95 @@ static void ShiftRegister_OutputEnablePwmInit(uint8_t brightness) {
   TIM2->CR1 |= TIM_CR1_ARPE | TIM_CR1_CEN;
 }
 
+static uint32_t ADC_ChannelToSelection(uint32_t channel) {
+  if (channel == ADC_CHANNEL_1) {
+    return ADC_CHSELR_CHSEL1;
+  }
+  if (channel == ADC_CHANNEL_9) {
+    return ADC_CHSELR_CHSEL9;
+  }
+  if (channel == ADC_CHANNEL_VREFINT) {
+    return ADC_CHSELR_CHSEL17;
+  }
+  return ADC_CHSELR_CHSEL1;
+}
+
+static void ADC_ConfigureBase(void) {
+  __HAL_RCC_ADC1_CLK_ENABLE();
+  ADC1_COMMON->CCR = (ADC1_COMMON->CCR & ADC_CCR_VREFEN) | ADC_CCR_LFMEN;
+  ADC1->CR |= ADC_CR_ADVREGEN;
+  ADC1->CFGR1 = 0U;
+  ADC1->CFGR2 = ADC_CFGR2_CKMODE;
+  ADC1->SMPR = ADC_SMPR_SMPR_1;
+}
+
+static void ADC_Enable(void) {
+  if ((ADC1->CR & ADC_CR_ADEN) == 0U) {
+    ADC1->ISR = ADC_ISR_ADRDY;
+    ADC1->CR |= ADC_CR_ADEN;
+    while ((ADC1->ISR & ADC_ISR_ADRDY) == 0U) {
+    }
+  }
+}
+
+static void ADC_StopConversion(void) {
+  if ((ADC1->CR & ADC_CR_ADSTART) != 0U) {
+    ADC1->CR |= ADC_CR_ADSTP;
+    while ((ADC1->CR & ADC_CR_ADSTART) != 0U) {
+    }
+  }
+}
+
+static void ADC_Disable(void) {
+  ADC_StopConversion();
+  if ((ADC1->CR & ADC_CR_ADEN) != 0U) {
+    ADC1->CR |= ADC_CR_ADDIS;
+    while ((ADC1->CR & ADC_CR_ADEN) != 0U) {
+    }
+  }
+}
+
+static void ADC_Calibrate(void) {
+  ADC_ConfigureBase();
+  ADC_Disable();
+  ADC1->CFGR1 &= ~(ADC_CFGR1_DMAEN | ADC_CFGR1_DMACFG);
+  ADC1->CR |= ADC_CR_ADCAL;
+  while ((ADC1->CR & ADC_CR_ADCAL) != 0U) {
+  }
+  adcCalibrated = 1U;
+  ADC_Enable();
+}
+
+static void ADC_Shutdown(void) {
+  ADC_Disable();
+  ADC1_COMMON->CCR &= ~ADC_CCR_VREFEN;
+  ADC1->CR &= ~ADC_CR_ADVREGEN;
+  adcCalibrated = 0U;
+  __HAL_RCC_ADC1_CLK_DISABLE();
+}
+
 static uint16_t ADC_ReadChannel(uint32_t channel) {
-  ADC_ChannelConfTypeDef sConfig = {0};
   uint16_t value = 0x0FFFU;
 
-  HAL_ADC_Stop(&hadc);
-  ADC1->CHSELR = 0U;
-
-  sConfig.Channel = channel;
-  sConfig.Rank = ADC_RANK_CHANNEL_NUMBER;
-  if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK) {
-    return value;
+  if (adcCalibrated == 0U) {
+    ADC_Calibrate();
   }
+  ADC_Enable();
+  ADC_StopConversion();
+  ADC1->CHSELR = ADC_ChannelToSelection(channel);
 
   for (uint8_t sample = 0U; sample < 2U; ++sample) {
-    if (HAL_ADC_Start(&hadc) != HAL_OK) {
-      break;
+    uint16_t timeout = 10000U;
+
+    ADC1->ISR = ADC_ISR_EOC | ADC_ISR_EOS | ADC_ISR_OVR;
+    ADC1->CR |= ADC_CR_ADSTART;
+    while (((ADC1->ISR & ADC_ISR_EOC) == 0U) && (timeout != 0U)) {
+      --timeout;
     }
-    if (HAL_ADC_PollForConversion(&hadc, 5U) == HAL_OK) {
-      value = (uint16_t)(HAL_ADC_GetValue(&hadc) & 0x0FFFU);
+    if (timeout != 0U) {
+      value = (uint16_t)(ADC1->DR & 0x0FFFU);
     }
-    HAL_ADC_Stop(&hadc);
+    ADC_StopConversion();
   }
   return value;
 }
@@ -120,10 +189,10 @@ static uint16_t MainPower_ReadSenseMv(void) {
   uint16_t vrefRaw;
   uint32_t vddaMv;
 
-  (void)HAL_ADCEx_EnableVREFINT();
+  ADC1_COMMON->CCR |= ADC_CCR_VREFEN;
   senseRaw = ADC_ReadChannel(MAIN_POWER_SENSE_ADC_CHANNEL);
   vrefRaw = ADC_ReadChannel(ADC_CHANNEL_VREFINT);
-  HAL_ADCEx_DisableVREFINT();
+  ADC1_COMMON->CCR &= ~ADC_CCR_VREFEN;
 
   if (vrefRaw == 0U) {
     return 0U;
@@ -393,7 +462,7 @@ static ClockButton_t DecodeButton(uint16_t adcValue) {
 void Board_Init(void) {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
 
-  (void)HAL_ADCEx_Calibration_Start(&hadc, ADC_SINGLE_ENDED);
+  ADC_Calibrate();
 
   __HAL_RCC_GPIOA_CLK_ENABLE();
 
@@ -530,9 +599,7 @@ void Board_EnterStandby(void) {
     return;
   }
 
-  HAL_ADC_Stop(&hadc);
-  HAL_ADC_DeInit(&hadc);
-  HAL_ADCEx_DisableVREFINT();
+  ADC_Shutdown();
   HAL_PWREx_DisableFastWakeUp();
   HAL_PWREx_EnableUltraLowPower();
   DBGMCU->CR &= ~DBGMCU_CR_DBG;
@@ -577,8 +644,7 @@ static void Board_PowerDownExternalDevices(uint16_t gpioAPins, uint8_t stopAdc) 
                     SHIFT_REGISTER_OUTPUT_ENABLE_PIN, GPIO_PIN_SET);
 
   if (stopAdc != 0U) {
-    HAL_ADC_Stop(&hadc);
-    HAL_ADCEx_DisableVREFINT();
+    ADC1_COMMON->CCR &= ~ADC_CCR_VREFEN;
   }
 
   GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;

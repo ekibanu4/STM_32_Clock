@@ -237,6 +237,14 @@ The idle cycle is reset by:
 - active time/date/alarm editing;
 - currently ringing alarm.
 
+In idle-display state the firmware stays in the normal main loop. It does not
+enter STOP, does not enable PA7 EXTI wake, and does not run a 1-second RTC
+wakeup timer. Instead, the core clock is reduced from MSI range 6
+(`4.194304 MHz`) to MSI range 5 (`2.097152 MHz`) while the displays are off.
+When motion, a button press, or an alarm requires the UI again, firmware returns
+the MSI clock to `4.194304 MHz`, shows time mode, and resumes the normal
+display cycle.
+
 When main power is missing, the normal standby path runs first and the motion
 sensor is ignored so it cannot block power-loss handling.
 
@@ -378,6 +386,26 @@ main power returns  -> PA0 rising edge wakes the MCU
 
 `PA0` is not used as ADC or normal GPIO output. CubeMX assigns it as
 `SYS_WKUP1`; firmware only enables the PWR wake source before entering standby.
+
+## Size-Oriented Firmware Notes
+
+The l010 build avoids several HAL driver paths to keep the firmware inside the
+16 KB flash limit:
+
+- ADC reads for the button ladder, battery sense, and `VREFINT` use direct ADC1
+  registers instead of `HAL_ADC_Init`, `HAL_ADC_ConfigChannel`, and
+  `HAL_ADC_PollForConversion`;
+- `stm32l0xx_hal_adc.c`, `stm32l0xx_hal_adc_ex.c`, `stm32l0xx_hal_i2c.c`,
+  `stm32l0xx_hal_i2c_ex.c`, and `stm32l0xx_hal_dma.c` are not linked by the
+  CMake build;
+- system clock setup and `HAL_InitTick` are kept small and register-based;
+- the OLED/AHT10/BH1750 bus remains software I2C on GPIO, so no hardware I2C
+  handle or HAL I2C transfer code is used.
+
+The idle-display power saving is intentionally a pseudo-sleep only: it clears
+external displays and lowers MSI frequency, but it keeps SysTick and the main
+loop alive so PA7 motion, button input, low-battery handling, and software alarm
+checks continue to work.
 
 ## Flashing Notes
 
