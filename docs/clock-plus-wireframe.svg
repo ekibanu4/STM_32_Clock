@@ -1,0 +1,123 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900" role="img" aria-labelledby="title desc">
+  <title id="title">Фронтальна панель Clock Plus</title>
+  <desc id="desc">Монохромна схема фронтальної панелі з кнопками, OLED-дисплеєм, двома рядами світлодіодів та індикаторами режимів.</desc>
+  <defs>
+    <style>
+      text { font-family: Arial, sans-serif; fill: #111; }
+      .panel { fill: #fff; stroke: #111; stroke-width: 4; }
+      .screen { fill: #fff; stroke: #111; stroke-width: 3; }
+      .control { fill: #fff; stroke: #111; stroke-width: 3; }
+      .led { fill: #fff; stroke: #111; stroke-width: 2.5; }
+      .sensor { fill: #fff; stroke: #111; stroke-width: 3; }
+      .divider { stroke: #777; stroke-width: 1.5; }
+      .title { font-size: 28px; font-weight: 700; letter-spacing: 1px; }
+      .screenText { font: 700 36px Consolas, monospace; }
+      .number { font-size: 26px; font-weight: 700; text-anchor: middle; }
+      .buttonLetter { font-size: 31px; font-weight: 700; text-anchor: middle; dominant-baseline: middle; }
+      .modeLetter { font-size: 24px; font-weight: 700; text-anchor: middle; }
+      .label { font-size: 18px; text-anchor: middle; }
+      .small { font-size: 16px; text-anchor: middle; }
+      .noteTitle { font-size: 18px; font-weight: 700; }
+      .note { font-size: 17px; }
+    </style>
+  </defs>
+
+  <rect width="1400" height="900" fill="#fff"/>
+
+  <!-- Єдина фронтальна проєкція корпусу -->
+  <rect class="panel" x="100" y="70" width="1200" height="650" rx="18"/>
+  <text class="title" x="700" y="112" text-anchor="middle">CLOCK PLUS — ФРОНТАЛЬНА ПАНЕЛЬ</text>
+
+  <!-- OLED -->
+  <rect class="screen" x="820" y="140" width="330" height="105" rx="5"/>
+  <text class="screenText" x="985" y="197" text-anchor="middle">14:25:36</text>
+  <text class="small" x="985" y="229">OLED 128 × 32</text>
+
+  <!-- Ліві кнопки -->
+  <g>
+    <circle class="control" cx="220" cy="315" r="44"/>
+    <text class="buttonLetter" x="220" y="315">M</text>
+    <text class="label" x="220" y="378">РЕЖИМ</text>
+
+    <circle class="control" cx="220" cy="455" r="44"/>
+    <text class="buttonLetter" x="220" y="455">S</text>
+    <text class="label" x="220" y="518">НАЛАШТУВАННЯ</text>
+
+    <circle class="control" cx="220" cy="595" r="44"/>
+    <text class="buttonLetter" x="220" y="595">X</text>
+    <text class="label" x="220" y="658">ВИМК. / ВИХІД</text>
+
+    <circle class="sensor" cx="350" cy="315" r="40"/>
+    <circle class="sensor" cx="350" cy="315" r="12"/>
+    <text class="small" x="350" y="374">датчик руху (PIR)</text>
+  </g>
+
+  <!-- Праві кнопки -->
+  <g>
+    <circle class="control" cx="1180" cy="315" r="44"/>
+    <text class="buttonLetter" x="1180" y="315">▲</text>
+    <text class="label" x="1180" y="378">ВГОРУ</text>
+
+    <circle class="control" cx="1180" cy="500" r="44"/>
+    <text class="buttonLetter" x="1180" y="500">▼</text>
+    <text class="label" x="1180" y="563">ВНИЗ</text>
+  </g>
+
+  <!-- Індикатори режимів -->
+  <g>
+    <circle class="led" cx="585" cy="310" r="13"/>
+    <circle class="led" cx="735" cy="310" r="13"/>
+    <circle class="led" cx="885" cy="310" r="13"/>
+    <text class="modeLetter" x="585" y="286">T</text>
+    <text class="modeLetter" x="735" y="286">D</text>
+    <text class="modeLetter" x="885" y="286">E</text>
+    <text class="small" x="585" y="342">час</text>
+    <text class="small" x="735" y="342">дата</text>
+    <text class="small" x="885" y="342">клімат</text>
+  </g>
+
+  <!-- Двійковий світлодіодний індикатор -->
+  <g>
+    <text class="small" x="740" y="382">верхній ряд: години / місяць / температура</text>
+    <circle class="led" cx="465" cy="415" r="15"/>
+    <circle class="led" cx="575" cy="415" r="15"/>
+    <circle class="led" cx="685" cy="415" r="15"/>
+    <circle class="led" cx="795" cy="415" r="15"/>
+    <circle class="led" cx="905" cy="415" r="15"/>
+    <circle class="led" cx="1015" cy="415" r="15"/>
+
+    <text class="number" x="465" y="475">32</text>
+    <text class="number" x="575" y="475">16</text>
+    <text class="number" x="685" y="475">8</text>
+    <text class="number" x="795" y="475">4</text>
+    <text class="number" x="905" y="475">2</text>
+    <text class="number" x="1015" y="475">1</text>
+
+    <circle class="led" cx="465" cy="535" r="15"/>
+    <circle class="led" cx="575" cy="535" r="15"/>
+    <circle class="led" cx="685" cy="535" r="15"/>
+    <circle class="led" cx="795" cy="535" r="15"/>
+    <circle class="led" cx="905" cy="535" r="15"/>
+    <circle class="led" cx="1015" cy="535" r="15"/>
+
+    <text class="small" x="740" y="575">нижній ряд: хвилини / день / вологість / заряд</text>
+  </g>
+
+  <!-- Стан будильника та PIR -->
+  <g>
+    <circle class="led" cx="445" cy="625" r="15"/>
+    <text class="modeLetter" x="478" y="633">Б</text>
+    <text class="small" x="535" y="662">активний будильник / попередження про низький заряд</text>
+
+    <circle class="sensor" cx="1030" cy="625" r="12"/>
+    <text class="small" x="1030" y="661">датчик освітленості</text>
+  </g>
+
+  <!-- Пояснення поза панеллю -->
+  <text class="noteTitle" x="100" y="770">КЕРУВАННЯ</text>
+  <line class="divider" x1="100" y1="785" x2="1300" y2="785"/>
+  <text class="note" x="100" y="817">M — екрани: час → дата → клімат → будильники → акумулятор.</text>
+  <text class="note" x="100" y="848">S — налаштування; ▲ / ▼ — вибір; X — вихід або вимкнення сигналу.</text>
+  <text class="note" x="790" y="817">OLED — дані у текстовому вигляді.</text>
+  <text class="note" x="790" y="848">Світлодіоди — двійкові значення та стани.</text>
+</svg>

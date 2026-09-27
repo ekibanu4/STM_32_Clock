@@ -1,0 +1,42 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+
+  "version": "0.2.0",
+  "configurations": [
+    
+    {
+      "name": "Debug OpenOCD",
+      "type": "cortex-debug",
+      "request": "launch",
+      "servertype": "openocd",
+
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/build/Debug/l010f4p6.elf",
+      "preLaunchTask": "CMake: build Debug",
+
+      "device": "STM32L010F4P6",
+      "interface": "swd",
+
+      "configFiles": [
+        "${workspaceFolder}/openocd.cfg"
+      ],
+
+      "showDevDebugOutput": "raw",
+
+      "overrideLaunchCommands": [
+        "set remotetimeout 20",
+        "monitor reset run",
+        "monitor sleep 100",
+        "monitor halt",
+        "load",
+        "monitor reset halt"
+      ],
+
+      "overrideRestartCommands": [
+        "monitor reset halt"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,356 @@
+#include "ui_controller.h"
+
+#include <stdint.h>
+
+#include "alarm_manager.h"
+#include "app_config.h"
+#include "auto_mode_scheduler.h"
+#include "board.h"
+
+static DisplayMode_t displayMode = DISPLAY_TIME;
+static EditTarget_t editTarget = EDIT_NONE;
+static ClockDateTime_t currentDateTime = {0U, 0U, 12U, 1U, 1U, 26U};
+static ClockButton_t lastButton = CLOCK_BUTTON_NONE;
+static uint32_t offButtonHoldStartMs = 0U;
+static uint8_t offButtonHoldActive = 0U;
+static uint8_t offLongPressHandled = 0U;
+static uint32_t alarmErrorTicks = 0U;
+static uint32_t editIdleStartMs = 0U;
+
+static uint8_t MonthDays(uint8_t month, uint8_t year) {
+    switch (month) {
+    case 4U:
+    case 6U:
+    case 9U:
+    case 11U:
+        return 30U;
+    case 2U:
+        return ((year % 4U) == 0U) ? 29U : 28U;
+    case 1U:
+    case 3U:
+    case 5U:
+    case 7U:
+    case 8U:
+    case 10U:
+    case 12U:
+    default:
+        return 31U;
+    }
+}
+
+static uint8_t IncrementWrap(uint8_t value, uint8_t minimum, uint8_t maximum) {
+    if (value >= maximum) {
+        return minimum;
+    }
+    return (uint8_t)(value + 1U);
+}
+
+static uint8_t DecrementWrap(uint8_t value, uint8_t minimum, uint8_t maximum) {
+    if (value <= minimum) {
+        return maximum;
+    }
+    return (uint8_t)(value - 1U);
+}
+
+static void SaveTimeToRtc(void) {
+    Board_WriteTime(currentDateTime.hours, currentDateTime.minutes,
+                    currentDateTime.seconds);
+}
+
+static void SaveDateToRtc(void) {
+    Board_WriteDate(currentDateTime.day, currentDateTime.month,
+                    currentDateTime.year);
+}
+
+static void NormalizeDateTime(void) {
+    if (currentDateTime.seconds > 59U) {
+        currentDateTime.seconds = 0U;
+    }
+    if (currentDateTime.minutes > 59U) {
+        currentDateTime.minutes = 0U;
+    }
+    if (currentDateTime.hours > 23U) {
+        currentDateTime.hours = 12U;
+    }
+    if ((currentDateTime.month < 1U) || (currentDateTime.month > 12U)) {
+        currentDateTime.month = 1U;
+    }
+    if (currentDateTime.year > 99U) {
+        currentDateTime.year = 0U;
+    }
+    if ((currentDateTime.day < 1U) ||
+        (currentDateTime.day >
+         MonthDays(currentDateTime.month, currentDateTime.year))) {
+        currentDateTime.day = 1U;
+    }
+}
+
+static void HandleModeButton(void) {
+    AlarmManager_StopBuzzer();
+    editTarget = EDIT_NONE;
+    UiController_RefreshDateTime();
+
+    if (displayMode == DISPLAY_TIME) {
+        displayMode = DISPLAY_DATE;
+    } else if (displayMode == DISPLAY_DATE) {
+        displayMode = DISPLAY_ENVIRONMENT;
+    } else if (displayMode == DISPLAY_ENVIRONMENT) {
+        displayMode = DISPLAY_ALARM;
+        while (AlarmManager_SelectedSlot() != 0U) {
+            AlarmManager_SelectPreviousSlot();
+        }
+    } else if (displayMode == DISPLAY_ALARM) {
+        displayMode = DISPLAY_BATTERY;
+    } else {
+        displayMode = DISPLAY_TIME;
+    }
+}
+
+static void HandleSetButton(void) {
+    AlarmManager_StopBuzzer();
+    if (displayMode == DISPLAY_TIME) {
+        if ((editTarget == EDIT_NONE) || (editTarget == EDIT_HOURS)) {
+            editTarget = EDIT_MINUTES;
+        } else {
+            editTarget = EDIT_HOURS;
+        }
+    } else if (displayMode == DISPLAY_DATE) {
+        if ((editTarget == EDIT_NONE) || (editTarget == EDIT_YEAR)) {
+            editTarget = EDIT_DAY;
+        } else if (editTarget == EDIT_DAY) {
+            editTarget = EDIT_MONTH;
+        } else {
+            editTarget = EDIT_YEAR;
+        }
+    } else if (displayMode == DISPLAY_ALARM) {
+        if ((editTarget == EDIT_NONE) || (editTarget == EDIT_ALARM_MINUTES)) {
+            editTarget = EDIT_ALARM_HOURS;
+        } else {
+            editTarget = EDIT_ALARM_MINUTES;
+        }
+    }
+}
+
+static void HandleUpButton(void) {
+    AlarmManager_StopBuzzer();
+    switch (editTarget) {
+    case EDIT_MINUTES:
+        currentDateTime.minutes = IncrementWrap(currentDateTime.minutes, 0U, 59U);
+        currentDateTime.seconds = 0U;
+        SaveTimeToRtc();
+        break;
+    case EDIT_HOURS:
+        currentDateTime.hours = IncrementWrap(currentDateTime.hours, 0U, 23U);
+        SaveTimeToRtc();
+        break;
+    case EDIT_DAY:
+        currentDateTime.day =
+            IncrementWrap(currentDateTime.day, 1U,
+                          MonthDays(currentDateTime.month,
+                                    currentDateTime.year));
+        SaveDateToRtc();
+        break;
+    case EDIT_MONTH:
+        currentDateTime.month = IncrementWrap(currentDateTime.month, 1U, 12U);
+        if (currentDateTime.day >
+            MonthDays(currentDateTime.month, currentDateTime.year)) {
+            currentDateTime.day =
+                MonthDays(currentDateTime.month, currentDateTime.year);
+        }
+        SaveDateToRtc();
+        break;
+    case EDIT_YEAR:
+        currentDateTime.year = IncrementWrap(currentDateTime.year, 0U, 99U);
+        if (currentDateTime.day >
+            MonthDays(currentDateTime.month, currentDateTime.year)) {
+            currentDateTime.day =
+                MonthDays(currentDateTime.month, currentDateTime.year);
+        }
+        SaveDateToRtc();
+        break;
+    case EDIT_ALARM_HOURS:
+        AlarmManager_IncrementSelectedHour();
+        break;
+    case EDIT_ALARM_MINUTES:
+        AlarmManager_IncrementSelectedMinute();
+        break;
+    case EDIT_NONE:
+    default:
+        if (displayMode == DISPLAY_ALARM) {
+            AlarmManager_SelectPreviousSlot();
+        }
+        break;
+    }
+}
+
+static void HandleDownButton(void) {
+    AlarmManager_StopBuzzer();
+    switch (editTarget) {
+    case EDIT_MINUTES:
+        currentDateTime.minutes = DecrementWrap(currentDateTime.minutes, 0U, 59U);
+        currentDateTime.seconds = 0U;
+        SaveTimeToRtc();
+        break;
+    case EDIT_HOURS:
+        currentDateTime.hours = DecrementWrap(currentDateTime.hours, 0U, 23U);
+        SaveTimeToRtc();
+        break;
+    case EDIT_DAY:
+        currentDateTime.day =
+            DecrementWrap(currentDateTime.day, 1U,
+                          MonthDays(currentDateTime.month,
+                                    currentDateTime.year));
+        SaveDateToRtc();
+        break;
+    case EDIT_MONTH:
+        currentDateTime.month = DecrementWrap(currentDateTime.month, 1U, 12U);
+        if (currentDateTime.day >
+            MonthDays(currentDateTime.month, currentDateTime.year)) {
+            currentDateTime.day =
+                MonthDays(currentDateTime.month, currentDateTime.year);
+        }
+        SaveDateToRtc();
+        break;
+    case EDIT_YEAR:
+        currentDateTime.year = DecrementWrap(currentDateTime.year, 0U, 99U);
+        if (currentDateTime.day >
+            MonthDays(currentDateTime.month, currentDateTime.year)) {
+            currentDateTime.day =
+                MonthDays(currentDateTime.month, currentDateTime.year);
+        }
+        SaveDateToRtc();
+        break;
+    case EDIT_ALARM_HOURS:
+        AlarmManager_DecrementSelectedHour();
+        break;
+    case EDIT_ALARM_MINUTES:
+        AlarmManager_DecrementSelectedMinute();
+        break;
+    case EDIT_NONE:
+    default:
+        if (displayMode == DISPLAY_ALARM) {
+            AlarmManager_SelectNextSlot();
+        }
+        break;
+    }
+}
+
+static void HandleOffButton(void) {
+    AlarmManager_StopBuzzer();
+    if (displayMode == DISPLAY_ALARM) {
+        if (editTarget != EDIT_NONE) {
+            editTarget = EDIT_NONE;
+            editIdleStartMs = 0U;
+            return;
+        }
+
+        if (AlarmManager_ToggleSelectedSlot() == 0U) {
+            alarmErrorTicks = ALARM_EMPTY_SLOT_ERROR_TICKS;
+        }
+        return;
+    }
+
+    editTarget = EDIT_NONE;
+    editIdleStartMs = 0U;
+    UiController_RefreshDateTime();
+}
+
+static void HandleButton(ClockButton_t button) {
+    switch (button) {
+    case CLOCK_BUTTON_MODE:
+        HandleModeButton();
+        break;
+    case CLOCK_BUTTON_SET:
+        HandleSetButton();
+        break;
+    case CLOCK_BUTTON_UP:
+        HandleUpButton();
+        break;
+    case CLOCK_BUTTON_DOWN:
+        HandleDownButton();
+        break;
+    case CLOCK_BUTTON_OFF:
+        HandleOffButton();
+        break;
+    case CLOCK_BUTTON_NONE:
+    default:
+        break;
+    }
+}
+
+void UiController_Init(void) {
+    AutoModeScheduler_Reset();
+    UiController_RefreshDateTime();
+}
+
+void UiController_UpdateButton(ClockButton_t pressedButton, uint32_t nowMs) {
+    if (alarmErrorTicks > 0U) {
+        --alarmErrorTicks;
+    }
+
+    if (pressedButton != CLOCK_BUTTON_NONE) {
+        AutoModeScheduler_PauseForUserActivity();
+    }
+
+    if (pressedButton == CLOCK_BUTTON_OFF) {
+        if (offButtonHoldActive == 0U) {
+            offButtonHoldStartMs = nowMs;
+            offButtonHoldActive = 1U;
+        }
+        if (((uint32_t)(nowMs - offButtonHoldStartMs) >= OFF_LONG_PRESS_MS) &&
+            (offLongPressHandled == 0U)) {
+            AlarmManager_ToggleAll();
+            editTarget = EDIT_NONE;
+            offLongPressHandled = 1U;
+        }
+    } else {
+        if ((lastButton == CLOCK_BUTTON_OFF) && (offLongPressHandled == 0U)) {
+            HandleButton(CLOCK_BUTTON_OFF);
+        }
+        offButtonHoldActive = 0U;
+        offLongPressHandled = 0U;
+    }
+
+    if ((pressedButton != CLOCK_BUTTON_NONE) &&
+        (pressedButton != CLOCK_BUTTON_OFF) && (pressedButton != lastButton)) {
+        HandleButton(pressedButton);
+    }
+    if ((editTarget == EDIT_NONE) || (pressedButton != CLOCK_BUTTON_NONE)) {
+        editIdleStartMs = nowMs;
+    } else if ((uint32_t)(nowMs - editIdleStartMs) >= EDIT_IDLE_TIMEOUT_MS) {
+        HandleOffButton();
+        AutoModeScheduler_PauseForUserActivity();
+    }
+    lastButton = pressedButton;
+}
+
+void UiController_UpdateAutoModeCycle(void) {
+    AutoModeScheduler_Update(&displayMode, &editTarget);
+}
+
+void UiController_RefreshDateTime(void) {
+    Board_ReadDateTime(&currentDateTime);
+    NormalizeDateTime();
+}
+
+void UiController_ShowTimeMode(void) {
+    displayMode = DISPLAY_TIME;
+    editTarget = EDIT_NONE;
+    UiController_RefreshDateTime();
+}
+
+DisplayMode_t UiController_DisplayMode(void) {
+    return displayMode;
+}
+
+EditTarget_t UiController_EditTarget(void) {
+    return editTarget;
+}
+
+const ClockDateTime_t *UiController_DateTime(void) {
+    return &currentDateTime;
+}
+
+uint8_t UiController_AlarmErrorActive(void) {
+    return (alarmErrorTicks > 0U) ? 1U : 0U;
+}

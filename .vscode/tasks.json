@@ -1,0 +1,83 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "CMake: configure Debug",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "--preset",
+        "Debug"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "CMake: build Debug",
+      "type": "shell",
+      "command": "cmake",
+      "args": [
+        "--build",
+        "--preset",
+        "Debug"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": "$gcc",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      }
+    },
+    {
+      "label": "OpenOCD: flash Debug",
+      "type": "shell",
+      "dependsOn": "CMake: build Debug",
+      "command": "openocd",
+      "args": [
+        "-f",
+        "${workspaceFolder}/openocd.cfg",
+        "-c",
+        "init; reset halt; program ${workspaceFolder}/build/Debug/l010f4p6.elf verify; reset run; shutdown"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "OpenOCD: flash Debug and run",
+      "type": "shell",
+      "dependsOn": "CMake: build Debug",
+      "command": "openocd",
+      "args": [
+        "-f",
+        "${workspaceFolder}/openocd.cfg",
+        "-c",
+        "init; reset halt; program ${workspaceFolder}/build/Debug/l010f4p6.elf verify; reset run; shutdown"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "OpenOCD: erase",
+      "type": "shell",
+      "command": "openocd",
+      "args": [
+        "-f",
+        "${workspaceFolder}/openocd.cfg",
+        "-c",
+        "init; halt; flash erase_address 0x08000000 0x4000; reset; shutdown"
+      ],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "problemMatcher": []
+    }
+  ]
+}
