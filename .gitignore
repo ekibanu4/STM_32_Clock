@@ -1,3 +1,24 @@
 build
 mx.scratch
 !.settings
+
+# macOS
+.DS_Store
+
+# Python caches
+__pycache__/
+*.py[cod]
+
+# Temporary document/PDF render output
+tmp/
+
+# KiCad local state, locks, history, and working snapshots
+.history/
+*.lck
+*.kicad_prl
+*.bak
+*.bck
+*-backups/
+*-rescue.lib
+fp-info-cache
+*.before-*.kicad_*
