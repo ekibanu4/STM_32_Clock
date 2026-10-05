@@ -351,11 +351,25 @@ divider calibration. `PA0` and `PB1` intentionally have separate jobs:
 - `PA0 / WKUP1` decides hard standby and wake after real power loss;
 - `PB1 / ADC_IN9` decides low-battery display shutdown and battery percentage.
 
-Current divider calibration:
+Divider scaling follows the fitted 470 kOhm upper and 1 MOhm lower resistors:
 
 ```text
-2140 mV on PB1 = 3650 mV on BAT+
+BAT+ -- 470 kOhm -- PB1 / ADC_IN9 -- 1 MOhm -- GND
+battery_mV = sense_mV * 1470 / 1000
 ```
+
+At 3390 mV on BAT+, an unloaded PB1 should be about 2306 mV. The previous
+3650/2140 scaling overestimated battery voltage by about 16%. A voltage meter
+loads this high-impedance divider: a 1 MOhm input in parallel with the lower
+resistor reduces PB1 to about 1747 mV and can trigger low-battery mode. Compare
+firmware voltage against BAT+ with the PB1 probe removed; use the raw ADC and
+VREFINT readings to inspect PB1 without changing the divider load.
+On the tested board at 4200 mV input, ADC diagnostics measured 2184 mV with the
+meter connected and 2870 mV after removing the PB1 probe.
+After correcting the scaling, firmware read 4215 mV at the supply's 4200 mV
+setting. At a multimeter-measured 3380 mV on BAT+, it read about 3338 mV; the
+remaining error is about 42 mV (1.2%), so this is nominal divider scaling rather
+than a precision calibration of the full measurement path.
 
 Current low-battery thresholds:
 
