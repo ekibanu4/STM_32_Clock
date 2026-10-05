@@ -157,10 +157,15 @@ address `0x23`. All devices share the same two lines. Both lines are configured
 as open-drain GPIO with pull-ups enabled in firmware; external pull-ups are
 still recommended for a stable bus.
 
-The firmware initializes AHT10 with `0xE1 0x08 0x00`, triggers a measurement
-with `0xAC 0x33 0x00`, waits about 80 ms, then reads 6 bytes and converts the
-20-bit humidity and temperature values. Reads are throttled to no faster than
-once every 15 seconds.
+Before initializing AHT10, firmware recovers the bus with nine SCL pulses and
+STOP, waits 40 ms, sends soft reset `0xBA`, and waits 20 ms. It then initializes
+the sensor with `0xE1 0x08 0x00` and waits another 40 ms. A measurement starts
+with `0xAC 0x33 0x00`; its 80 ms wait starts after the command finishes, so
+initialization cannot shorten conversion time. Firmware reads 6 bytes and
+converts the 20-bit humidity and temperature values. A busy response keeps the
+measurement pending for another scheduler attempt, up to 200 ms from the
+trigger; timeout marks the reading invalid and resets initialization state.
+Successful measurements are throttled to no faster than once every 15 seconds.
 
 In environment display mode, the top/six-hour LEDs show temperature as a binary
 number. The lower humidity LEDs are a scale, not a binary value:
@@ -223,8 +228,7 @@ written once with `ALARM n` and normal redraw is skipped until the alarm stops.
 `PA7` is used as a digital motion sensor input. The sensor output should be
 `0..3.3V`; high means motion is present. After one complete automatic display
 cycle without motion, button activity, active setup, or an active alarm, firmware
-clears the displays, turns the buzzer off, disables the 74HC595 OE PWM, and puts
-external display/I2C control pins into analog mode. The firmware waits for the
+clears the displays and turns the buzzer off. The firmware waits for the
 actual automatic transitions `time -> date -> environment -> time`, so each
 automatic screen is shown before idle display shutdown. With the current
 `15s/5s/5s` auto-mode timing this is about 25 seconds. It does not enter standby
@@ -237,13 +241,35 @@ The idle cycle is reset by:
 - active time/date/alarm editing;
 - currently ringing alarm.
 
-In idle-display state the firmware stays in the normal main loop. It does not
-enter STOP, does not enable PA7 EXTI wake, and does not run a 1-second RTC
-wakeup timer. Instead, the core clock is reduced from MSI range 6
-(`4.194304 MHz`) to MSI range 5 (`2.097152 MHz`) while the displays are off.
+Between application updates the CPU enters ordinary Sleep (`WFI`, not STOP).
+The active update interval remains 20 ms. In idle-display state it increases to
+100 ms, and the core clock is reduced from MSI range 6 (`4.194304 MHz`) to MSI
+range 5 (`2.097152 MHz`) while the displays are off.
 When motion, a button press, or an alarm requires the UI again, firmware returns
-the MSI clock to `4.194304 MHz`, shows time mode, and resumes the normal
-display cycle.
+the MSI clock to `4.194304 MHz`, restores the 20 ms interval, shows time mode,
+and resumes the normal display cycle. Low-battery handling also uses 20 ms so
+the existing buzzer pattern keeps its timing.
+
+LPTIM1 is reserved for a one-shot wake interrupt, clocked from the RTC's
+32.768 kHz LSE crystal. Sleep lasts only for the remaining part of the update
+interval; if processing already consumed the interval, the next update runs
+immediately. SysTick runs at 1 ms while code executes, but its counter and IRQ
+are stopped during Sleep. On wake, the elapsed LPTIM1 count advances the HAL
+millisecond counter, with fractional milliseconds retained across sleeps and
+MSI changes. A pending SysTick is accounted for before sleeping. Interrupts
+are masked across WFI: an enabled pending timer IRQ prevents sleep or wakes
+the core even with its handler masked (PM0223, wakeup from WFI). This also
+handles an IRQ that is already pending before WFI, without depending on the
+WFE event latch or SEVONPEND. LPTIM1 is reset after reading its
+elapsed count, avoiding flag clearing outside its ISR (ES0483). SysTick keeps
+counting while the ARR write synchronizes to LSE. If LSE is not ready, the
+firmware falls back to Sleep with the normal 1 ms SysTick wake source; timer
+configuration also has a bounded synchronization wait.
+
+PA7 and the ADC button ladder are still polled, without EXTI. Idle detection
+latency is approximately up to 100 ms plus processing time, and button presses
+shorter than the polling interval can be missed. RTC calendar updates remain
+at 1 s. This path does not turn off ADC, TIM2 PWM, or sensor power.
 
 When main power is missing, the normal standby path runs first and the motion
 sensor is ignored so it cannot block power-loss handling.
@@ -338,11 +364,17 @@ MAIN_POWER_BATTERY_MV_MIN = 2900 mV battery voltage
 MAIN_POWER_BATTERY_MV_RECOVER = 3100 mV battery voltage
 ```
 
-When the scaled battery voltage is below `2900 mV` for three consecutive checks
+Battery voltage is measured once every 500 ms and cached for both the
+low-battery check and the percentage display. ADC sampling time is 160.5 clock
+cycles for button, battery, and VREFINT channels; the first conversion after
+selecting a channel is discarded as before.
+
+When the scaled battery voltage is below `2900 mV` for three consecutive fresh measurements
 while `PA0` is still high, firmware enters low-battery mode instead of standby:
 external devices are powered down and only the alarm LED blinks periodically.
-Normal display operation resumes only after three consecutive checks at or above
-`3100 mV`.
+Normal display operation resumes only after three consecutive fresh measurements
+at or above `3100 mV`. Repeated cache reads do not count as confirmation; a
+persistent threshold crossing takes approximately 1–1.5 s to confirm.
 
 Before standby the firmware powers external devices down, then waits up to
 `25 s` for `PA0 / WKUP1` to be low and debounces that low level for `300 ms`.
@@ -402,10 +434,10 @@ The l010 build avoids several HAL driver paths to keep the firmware inside the
 - the OLED/AHT10/BH1750 bus remains software I2C on GPIO, so no hardware I2C
   handle or HAL I2C transfer code is used.
 
-The idle-display power saving is intentionally a pseudo-sleep only: it clears
-external displays and lowers MSI frequency, but it keeps SysTick and the main
-loop alive so PA7 motion, button input, low-battery handling, and software alarm
-checks continue to work.
+The main loop uses ordinary Sleep between updates (20 ms active, 100 ms idle)
+with LPTIM1 wakeup and HAL time compensation. This preserves peripheral state
+and avoids 1 ms SysTick wakeups while asleep. STOP is not used; PA7 motion,
+button input, low-battery handling, and software alarm checks run on each update.
 
 ## Flashing Notes
 

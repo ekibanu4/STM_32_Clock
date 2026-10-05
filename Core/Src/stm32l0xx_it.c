@@ -141,5 +141,11 @@ void SysTick_Handler(void)
 /******************************************************************************/
 
 /* USER CODE BEGIN 1 */
+void LPTIM1_IRQHandler(void)
+{
+  LPTIM1->ICR = LPTIM_ICR_ARRMCF;
+  __DSB();
+  __SEV();
+}
 
 /* USER CODE END 1 */

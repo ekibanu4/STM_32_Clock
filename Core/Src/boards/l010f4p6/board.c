@@ -10,6 +10,7 @@
 #define DISPLAY_TEST_BRIGHTNESS 20U
 #define ADC_FULL_SCALE 4095U
 #define MAIN_POWER_CONFIRM_SAMPLES 3U
+#define BATTERY_MEASUREMENT_INTERVAL_MS 500U
 #define MAIN_POWER_WAKEUP_LOW_WAIT_MS 25000U
 #define MAIN_POWER_WAKEUP_LOW_DEBOUNCE_MS 300U
 #define BATTERY_PERCENT_FILTER_SHIFT 4U
@@ -19,7 +20,9 @@
 #define AHT10_ADDRESS 0x38U
 #define AHT10_MIN_READ_INTERVAL_MS 15000UL
 #define AHT10_INIT_DELAY_MS 40U
+#define AHT10_RESET_DELAY_MS 20U
 #define AHT10_MEASURE_DELAY_MS 80U
+#define AHT10_MEASURE_TIMEOUT_MS 200U
 #define AHT10_STATUS_BUSY 0x80U
 #define BH1750_ADDRESS 0x23U
 #define BH1750_POWER_ON 0x01U
@@ -39,6 +42,7 @@ static uint32_t aht10MeasureStartMs = 0U;
 static uint32_t lastBrightnessReadMs = 0U;
 static uint8_t bh1750Initialized = 0U;
 static uint8_t adcCalibrated = 0U;
+static uint8_t batteryLow = 0U;
 
 static void Board_PowerDownExternalDevices(uint16_t gpioAPins, uint8_t stopAdc);
 static void ADC_Shutdown(void);
@@ -110,7 +114,7 @@ static void ADC_ConfigureBase(void) {
   ADC1->CR |= ADC_CR_ADVREGEN;
   ADC1->CFGR1 = 0U;
   ADC1->CFGR2 = ADC_CFGR2_CKMODE;
-  ADC1->SMPR = ADC_SMPR_SMPR_1;
+  ADC1->SMPR = ADC_SMPR_SMPR; /* 160.5 ADC clock cycles, including VREFINT. */
 }
 
 static void ADC_Enable(void) {
@@ -203,14 +207,41 @@ static uint16_t MainPower_ReadSenseMv(void) {
 }
 
 static uint16_t MainPower_ReadBatteryMv(void) {
-  uint32_t senseMv = MainPower_ReadSenseMv();
+  static uint16_t batteryMv = 0U;
+  static uint32_t lastMeasurementMs = 0U;
+  static uint8_t measurementValid = 0U;
+  static uint8_t confirmationSamples = 0U;
+  uint32_t now = HAL_GetTick();
+  uint32_t senseMv;
+
+  /* Both callers share one physical measurement every 500 ms. */
+  if ((measurementValid != 0U) &&
+      ((now - lastMeasurementMs) < BATTERY_MEASUREMENT_INTERVAL_MS)) {
+    return batteryMv;
+  }
 
   if (MAIN_POWER_SENSE_ADC_CAL_MV == 0U) {
     return 0U;
   }
 
-  return (uint16_t)((senseMv * MAIN_POWER_SENSE_BATTERY_CAL_MV) /
-                    MAIN_POWER_SENSE_ADC_CAL_MV);
+  senseMv = MainPower_ReadSenseMv();
+  batteryMv = (uint16_t)((senseMv * MAIN_POWER_SENSE_BATTERY_CAL_MV) /
+                         MAIN_POWER_SENSE_ADC_CAL_MV);
+  lastMeasurementMs = HAL_GetTick();
+  measurementValid = 1U;
+
+  /* Confirm the threshold using three fresh measurements, not cache reads. */
+  if (((batteryLow == 0U) && (batteryMv < MAIN_POWER_BATTERY_MV_MIN)) ||
+      ((batteryLow != 0U) && (batteryMv >= MAIN_POWER_BATTERY_MV_RECOVER))) {
+    ++confirmationSamples;
+    if (confirmationSamples >= MAIN_POWER_CONFIRM_SAMPLES) {
+      batteryLow = (batteryLow == 0U) ? 1U : 0U;
+      confirmationSamples = 0U;
+    }
+  } else {
+    confirmationSamples = 0U;
+  }
+  return batteryMv;
 }
 
 static uint16_t BatteryPercentTenthsFromMv(uint16_t batteryMv) {
@@ -280,6 +311,16 @@ static void BoardI2c_Stop(void) {
   BoardI2c_SdaLow();
   BoardI2c_SclHigh();
   BoardI2c_SdaHigh();
+}
+
+static void BoardI2c_RecoverBus(void) {
+  /* Finish a slave read interrupted by an MCU reset, then release the bus. */
+  BoardI2c_SdaHigh();
+  for (uint8_t pulse = 0U; pulse < 9U; ++pulse) {
+    BoardI2c_SclHigh();
+    BoardI2c_SclLow();
+  }
+  BoardI2c_Stop();
 }
 
 static uint8_t BoardI2c_WriteByte(uint8_t value) {
@@ -379,10 +420,17 @@ static void BoardI2c_GpioInit(void) {
 }
 
 static uint8_t AHT10_InitSensor(void) {
+  static const uint8_t resetCommand = 0xBAU;
   static const uint8_t initCommand[3] = {0xE1U, 0x08U, 0x00U};
 
   BoardI2c_GpioInit();
+  BoardI2c_RecoverBus();
   HAL_Delay(AHT10_INIT_DELAY_MS);
+
+  if (AHT10_WriteCommand(&resetCommand, sizeof(resetCommand)) == 0U) {
+    return 0U;
+  }
+  HAL_Delay(AHT10_RESET_DELAY_MS);
 
   if (AHT10_WriteCommand(initCommand, sizeof(initCommand)) == 0U) {
     return 0U;
@@ -510,28 +558,7 @@ uint8_t Board_IsWakePowerPresent(void) {
 }
 
 uint8_t Board_IsBatteryAboveLowThreshold(void) {
-  static uint8_t batteryLow = 0U;
-  uint8_t aboveSamples = 0U;
-  uint8_t belowSamples = 0U;
-
-  for (uint8_t sample = 0U; sample < MAIN_POWER_CONFIRM_SAMPLES; ++sample) {
-    uint16_t batteryMv = MainPower_ReadBatteryMv();
-    if (batteryMv >= MAIN_POWER_BATTERY_MV_RECOVER) {
-      ++aboveSamples;
-    }
-    if (batteryMv < MAIN_POWER_BATTERY_MV_MIN) {
-      ++belowSamples;
-    }
-  }
-
-  if (batteryLow != 0U) {
-    if (aboveSamples >= MAIN_POWER_CONFIRM_SAMPLES) {
-      batteryLow = 0U;
-    }
-  } else if (belowSamples >= MAIN_POWER_CONFIRM_SAMPLES) {
-    batteryLow = 1U;
-  }
-
+  (void)MainPower_ReadBatteryMv();
   return (batteryLow == 0U) ? 1U : 0U;
 }
 
@@ -820,24 +847,28 @@ uint8_t Board_ReadEnvironment(ClockEnvironment_t *environment) {
       return AHT10_Fail(environment);
     }
     aht10MeasurePending = 1U;
-    aht10MeasureStartMs = nowMs;
+    /* Initialization and the command transfer must not shorten conversion. */
+    aht10MeasureStartMs = HAL_GetTick();
     return 0U;
   }
 
   if ((nowMs - aht10MeasureStartMs) < AHT10_MEASURE_DELAY_MS) {
     return 0U;
   }
-  aht10MeasurePending = 0U;
-  lastEnvironmentReadMs = nowMs;
-
   if (AHT10_ReadData(data, sizeof(data)) == 0U) {
     aht10Initialized = 0U;
     return AHT10_Fail(environment);
   }
 
   if ((data[0] & AHT10_STATUS_BUSY) != 0U) {
+    if ((nowMs - aht10MeasureStartMs) < AHT10_MEASURE_TIMEOUT_MS) {
+      return 0U;
+    }
+    aht10Initialized = 0U;
     return AHT10_Fail(environment);
   }
+  aht10MeasurePending = 0U;
+  lastEnvironmentReadMs = nowMs;
 
   humidityRaw =
       (((uint32_t)data[1]) << 12U) | (((uint32_t)data[2]) << 4U) |

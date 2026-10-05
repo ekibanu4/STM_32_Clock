@@ -58,7 +58,7 @@ Clock Plus - автономний бінарний годинник із дво�
 - PIR AM312/HC-SR312 для контролю присутності;
 - п'ять кнопок через один ADC-резистивний ladder;
 - контроль напруги 18650 через ADC;
-- псевдосон без зупинки ядра та повний STANDBY при зникненні основного
+- Sleep між обробками та повний STANDBY при зникненні основного
   живлення;
 - SWD для програмування та налагодження.
 
@@ -72,10 +72,10 @@ Clock Plus - автономний бінарний годинник із дво�
 | Flash | 16 KiB, адреса `0x08000000` |
 | SRAM | 2 KiB, адреса `0x20000000` |
 | Активна частота | MSI range 6, 4.194304 MHz |
-| Частота псевдосну | MSI range 5, 2.097152 MHz |
+| Частота очікування | MSI range 5, 2.097152 MHz |
 | RTC clock | LSE 32.768 kHz |
-| Системний tick | SysTick, 1 ms |
-| Період головного циклу | 20 ms, 50 Hz |
+| Системний tick | SysTick, 1 ms під час виконання; компенсація часу Sleep через LPTIM1/LSE |
+| Період головного циклу | 20 ms активний, 100 ms із погашеними екранами |
 | Мова | C11 із GNU extensions |
 | HAL/CMSIS | STM32CubeL0 FW 1.12.4 |
 
@@ -363,7 +363,7 @@ OE регістрів активний низьким рівнем. TIM2_CH1 н�
 | PWM mode | mode 1, preload enabled |
 | Polarity | inverted через `CC1P` |
 
-При 4.194304 MHz PWM має приблизно 5.24 kHz; у псевдосні дисплей уже
+При 4.194304 MHz PWM має приблизно 5.24 kHz; у режимі очікування дисплей уже
 вимкнений, тому зміна core clock не впливає на видиму яскравість.
 
 BH1750 задає 10 дискретних рівнів у діапазоні 2-50%.
@@ -441,10 +441,13 @@ I2C-транзакцій.
 | Параметр | Значення |
 | --- | --- |
 | Address | `0x38` |
+| Bus recovery | 9 SCL pulses та STOP перед initialization |
+| Soft reset | `BA`, після 40 ms очікування; далі 20 ms до init command |
 | Init command | `E1 08 00` |
-| Init delay | 40 ms до і 40 ms після command |
+| Init delay | 40 ms після init command |
 | Measure command | `AC 33 00` |
 | Conversion wait | 80 ms |
+| Busy timeout | 200 ms після завершення measure command |
 | Response | 6 bytes |
 | Мінімальний interval | 15 s |
 | Busy flag | byte 0, bit `0x80` |
@@ -458,8 +461,11 @@ Humidity і temperature вилучаються як 20-бітні значенн
 - LED-дисплей додатково обмежує temperature до 60.
 
 Measurement розділена на start і read, тому 80 ms очікування не виконується
-через блокувальний `HAL_Delay`. При помилці запису/читання дані позначаються
-invalid і драйвер повторно ініціалізує сенсор.
+через блокувальний `HAL_Delay`. Відлік починається після завершення measure
+command, а не до initialization. Busy response залишає measurement pending
+для наступної спроби scheduler; після 200 ms дані позначаються invalid і стан
+initialization скидається. При помилці запису/читання драйвер також повторно
+ініціалізує сенсор із bus recovery та soft reset.
 
 ## 12. BH1750
 
@@ -533,7 +539,7 @@ ADC 12-bit, full scale 4095. Для кожного читання firmware ви�
 - три slots: A1, A2, A3;
 - кожен має `configured`, `enabled`, `hour`, `minute`;
 - seconds не налаштовуються;
-- trigger перевіряється кожні 20 ms проти кешованого RTC часу, який
+- trigger перевіряється кожні 20 ms (100 ms у режимі очікування) проти кешованого RTC часу, який
   оновлюється раз на секунду;
 - hardware RTC Alarm interrupt не використовується;
 - однакова hour/minute не запускається повторно в межах тієї самої хвилини;
@@ -607,10 +613,12 @@ battery_mV = sense_mV * 3650 / 2140
 - channels: ADC_IN1, ADC_IN9 та internal VREFINT;
 - 12-bit result, range 0..4095;
 - увімкнений low-frequency mode;
-- sampling time задається `ADC_SMPR_SMPR_1`;
+- sampling time — 160.5 ADC clock cycles (`ADC_SMPR_SMPR`), включно з VREFINT;
 - виконується hardware calibration;
 - кожен channel читається двічі, використовується другий sample;
 - sense voltage коригується через factory-calibrated VREFINT;
+- напруга батареї вимірюється раз на 500 ms; low-battery check та percentage
+  display використовують спільне кешоване значення;
 - перед STANDBY ADC, VREFINT і regulator вимикаються.
 
 ### 15.3 Low-battery state
@@ -620,8 +628,12 @@ battery_mV = sense_mV * 3650 / 2140
 | Вхід у low battery | `<2900 mV` |
 | Вихід із low battery | `>=3100 mV` |
 | Confirm samples | 3 |
+| Measurement interval | 500 ms |
 | Hysteresis | 200 mV |
 | Alarm LED blink | 1 s |
+
+Підтвердження рахує лише нові вимірювання, а не повторні читання кешу.
+Постійне перетинання порога підтверджується приблизно за 1–1.5 s.
 
 Low-battery state не є STANDBY. У ньому:
 
@@ -652,7 +664,7 @@ Low-battery state не є STANDBY. У ньому:
 значення оновлюється не частіше ніж раз на 2 s і лише при зміні не менше 2.0
 percentage points. Значення 0% і 100% застосовуються одразу.
 
-## 16. PIR і псевдосон
+## 16. PIR і Sleep
 
 PA7 читається як digital input без pull-up/pull-down. PIR повинен видавати
 логічний рівень у межах 0..VDD MCU.
@@ -670,18 +682,37 @@ PA7 читається як digital input без pull-up/pull-down. PIR пови
 - очищує LED і OLED;
 - вимикає buzzer;
 - знижує MSI з 4.194304 до 2.097152 MHz;
-- залишається у main loop;
+- збільшує інтервал обробки з 20 до 100 ms та спить між обробками;
 - не читає AHT10/BH1750 і не оновлює OLED, бо повертається з `App_Tick()`
   одразу після перевірки motion/button/alarm.
 
-Це не STOP і не STANDBY. Пробудження не потребує interrupt: main loop продовжує
-опитувати PA7, кнопки й alarm. Після wake частота відновлюється, UI переходить
-до TIME.
+Між обробками ядро входить у звичайний Sleep через `WFI`; STOP не
+використовується. LPTIM1 від LSE 32.768 kHz генерує одноразове пробудження через
+залишок інтервалу. Якщо обробка вже зайняла весь інтервал, наступна починається
+одразу. SysTick зупиняється лише на час Sleep, а фактичний час LPTIM1 додається
+до HAL tick із накопиченням дробових мілісекунд. Під час виконання коду SysTick
+працює з кроком 1 ms, тому HAL delays і timeouts зберігають цей крок.
+Handler замаскований до відновлення HAL tick і SysTick, але дозволений у NVIC
+pending IRQ розбудить WFI або не дозволить заснути, якщо вже pending перед
+WFI. Пробудження не залежить від event latch WFE або `SEVONPEND`.
+Після читання лічильника LPTIM1
+скидається, щоб не очищувати його flags поза ISR (ES0483). Під час
+синхронізації ARR із LSE SysTick продовжує працювати. Якщо LSE не готовий,
+використовується Sleep із пробудженням від звичайного SysTick кожні 1 ms.
+Очікування синхронізації ARR обмежене timeout.
+
+PA7, ADC-кнопки, battery та alarm перевіряються після кожного пробудження.
+EXTI для PIR не використовується. Коротке натискання менш як 100 ms у режимі
+очікування може бути пропущене. При виявленні активності частота відновлюється,
+інтервал повертається до 20 ms, UI переходить до TIME. Low-battery mode також
+має інтервал 20 ms, щоб зберігався ритм buzzer. RTC читається раз на 1 s.
+ADC, TIM2 PWM і живлення сенсорів цей Sleep path не вимикає.
 
 ## 17. Повний STANDBY
 
 STANDBY запускається незалежно від battery percentage, коли PA0/WKUP1 low.
-Перевірка PA0 виконується першою у кожному 20 ms application tick, тому PIR не
+Перевірка PA0 виконується першою у кожному application tick (20 ms активний,
+100 ms у режимі очікування), тому PIR не
 може заблокувати перехід при зникненні основного живлення.
 
 Послідовність `Board_EnterStandby()`:
@@ -744,7 +775,7 @@ Automatic cycle містить лише TIME, DATE та ENVIRONMENT. ALARM не 
 11. environment scheduler;
 12. infinite main loop.
 
-Кожні 20 ms `App_Tick()` виконує:
+Кожні 20 ms (100 ms у режимі очікування) `App_Tick()` виконує:
 
 1. PA0/STANDBY check;
 2. RTC cache refresh, якщо минула 1 s;
@@ -917,7 +948,8 @@ breakpoints дають OpenOCD error `Can not find free FPB Comparator`.
 - long OFF toggle all;
 - low battery 2.9 V та recover 3.1 V;
 - buzzer продовжує звучати у low-battery mode;
-- один повний auto cycle до псевдосну;
+- один повний auto cycle до Sleep із погашеними екранами;
+- LPTIM1/LSE wake через залишок 20/100 ms, відсутність 1 ms SysTick wake під час Sleep;
 - wake від PIR і кнопок;
 - full STANDBY тільки від PA0 low;
 - відновлення RTC і alarm backup після wake.

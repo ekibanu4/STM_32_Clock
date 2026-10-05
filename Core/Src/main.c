@@ -38,6 +38,9 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define MAIN_LOOP_DELAY_MS 20U
+#define IDLE_LOOP_DELAY_MS 100U
+#define APP_SLEEP_TIMEBASE_HZ 32768U
+#define APP_SLEEP_TIMER_SYNC_TIMEOUT 10000U
 #define RTC_REFRESH_INTERVAL_MS 1000U
 #define BLINK_INTERVAL_MS 800U
 #define MAIN_POWER_STANDBY_ENABLED 1U
@@ -63,6 +66,8 @@
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN PV */
 RTC_HandleTypeDef hrtc;
+static uint32_t appLastLoopTick = 0U;
+static uint32_t appLoopIntervalMs = MAIN_LOOP_DELAY_MS;
 
 /* USER CODE END PV */
 
@@ -74,6 +79,7 @@ static void MX_ADC_Init(void);
 static uint8_t App_RTC_Init(void);
 static uint8_t App_Tick(void);
 static void App_SetMsiClock(uint32_t msiRange, uint32_t coreClockHz);
+static void App_SleepUntilNextTick(void);
 
 /* USER CODE END PFP */
 
@@ -132,6 +138,7 @@ int main(void)
   while (1)
   {
     (void)App_Tick();
+    App_SleepUntilNextTick();
 
     /* USER CODE END WHILE */
 
@@ -179,7 +186,7 @@ static void MX_ADC_Init(void)
   ADC1->CR |= ADC_CR_ADVREGEN;
   ADC1->CFGR1 = 0U;
   ADC1->CFGR2 = ADC_CFGR2_CKMODE;
-  ADC1->SMPR = ADC_SMPR_SMPR_1;
+  ADC1->SMPR = ADC_SMPR_SMPR;
   ADC1->CHSELR = ADC_CHSELR_CHSEL1 | ADC_CHSELR_CHSEL9;
 
 }
@@ -296,9 +303,100 @@ static uint8_t App_RTC_Init(void)
   return 1U;
 }
 
+static void App_SleepUntilNextTick(void)
+{
+  static uint32_t sleepFraction = 0U;
+  uint32_t elapsedMs = HAL_GetTick() - appLastLoopTick;
+  uint32_t timerPeriod;
+  uint32_t elapsedTimerTicks;
+  uint32_t previousCounter;
+  uint32_t elapsedUnits;
+  uint32_t systickControl;
+  uint32_t syncTimeout = APP_SLEEP_TIMER_SYNC_TIMEOUT;
+
+  if (elapsedMs >= appLoopIntervalMs) {
+    return;
+  }
+  if (__HAL_RCC_GET_FLAG(RCC_FLAG_LSERDY) == RESET) {
+    /* Keep the 1 ms HAL tick as a safe wake source if the RTC crystal fails. */
+    SCB->SCR &= ~(SCB_SCR_SLEEPDEEP_Msk | SCB_SCR_SLEEPONEXIT_Msk);
+    __DSB();
+    __WFI();
+    return;
+  }
+
+  __HAL_RCC_LPTIM1_CLK_ENABLE();
+  __HAL_RCC_LPTIM1_CLK_SLEEP_ENABLE();
+  __HAL_RCC_LPTIM1_CONFIG(RCC_LPTIM1CLKSOURCE_LSE);
+
+  /* WFI also returns for an already pending enabled IRQ with PRIMASK set.
+     Keep handlers masked until elapsed time and SysTick have been restored. */
+  __disable_irq();
+  systickControl = SysTick->CTRL;
+  if ((SCB->ICSR & SCB_ICSR_PENDSTSET_Msk) != 0U) {
+    SCB->ICSR = SCB_ICSR_PENDSTCLR_Msk;
+    HAL_IncTick();
+  }
+
+  elapsedMs = HAL_GetTick() - appLastLoopTick;
+  if (elapsedMs < appLoopIntervalMs) {
+    timerPeriod = (((appLoopIntervalMs - elapsedMs) * APP_SLEEP_TIMEBASE_HZ) +
+                   999U) / 1000U;
+    __HAL_RCC_LPTIM1_FORCE_RESET();
+    __HAL_RCC_LPTIM1_RELEASE_RESET();
+    LPTIM1->CFGR = 0U;
+    /* IER may only be changed while the peripheral is disabled (RM0451). */
+    LPTIM1->IER = LPTIM_IER_ARRMIE;
+    LPTIM1->CR = LPTIM_CR_ENABLE;
+    LPTIM1->ARR = timerPeriod - 1U;
+    while (((LPTIM1->ISR & LPTIM_ISR_ARROK) == 0U) && (syncTimeout != 0U)) {
+      --syncTimeout;
+    }
+    if (syncTimeout != 0U) {
+      /* Count the timer's asynchronous setup time with the normal SysTick.
+         Stop it only after ARR has reached the LSE clock domain. */
+      SysTick->CTRL = systickControl &
+                      ~(SysTick_CTRL_ENABLE_Msk | SysTick_CTRL_TICKINT_Msk);
+      if ((SCB->ICSR & SCB_ICSR_PENDSTSET_Msk) != 0U) {
+        SCB->ICSR = SCB_ICSR_PENDSTCLR_Msk;
+        HAL_IncTick();
+      }
+      NVIC_ClearPendingIRQ(LPTIM1_IRQn);
+      NVIC_EnableIRQ(LPTIM1_IRQn);
+      SCB->SCR &= ~(SCB_SCR_SLEEPDEEP_Msk | SCB_SCR_SLEEPONEXIT_Msk |
+                    SCB_SCR_SEVONPEND_Msk);
+      LPTIM1->CR = LPTIM_CR_ENABLE | LPTIM_CR_SNGSTRT;
+      __DSB();
+      __WFI();
+
+      /* The asynchronous counter must be read twice with matching values. */
+      do {
+        previousCounter = LPTIM1->CNT;
+        elapsedTimerTicks = LPTIM1->CNT;
+      } while (elapsedTimerTicks != previousCounter);
+      if ((LPTIM1->ISR & LPTIM_ISR_ARRM) != 0U) {
+        elapsedTimerTicks = timerPeriod;
+      }
+      elapsedUnits = sleepFraction + elapsedTimerTicks * 1000U;
+      uwTick += elapsedUnits / APP_SLEEP_TIMEBASE_HZ;
+      sleepFraction = elapsedUnits % APP_SLEEP_TIMEBASE_HZ;
+    }
+    /* Reset clears the source without an ICR write outside its IRQ handler
+       (STM32L010 errata ES0483, LPTIM interrupt clearing limitation). */
+    __HAL_RCC_LPTIM1_FORCE_RESET();
+    __HAL_RCC_LPTIM1_RELEASE_RESET();
+    NVIC_ClearPendingIRQ(LPTIM1_IRQn);
+    NVIC_DisableIRQ(LPTIM1_IRQn);
+    __DSB();
+  }
+  __HAL_RCC_LPTIM1_CLK_DISABLE();
+  /* Preserve the SysTick counter phase and fractional sleep milliseconds. */
+  SysTick->CTRL = systickControl;
+  __enable_irq();
+}
+
 static uint8_t App_Tick(void)
 {
-  static uint32_t lastLoopTick = 0U;
   static uint32_t lastRtcRefreshTick = 0U;
   static uint32_t lastBlinkTick = 0U;
   static DisplayMode_t lastIdleDisplayMode = DISPLAY_TIME;
@@ -317,10 +415,11 @@ static uint8_t App_Tick(void)
   uint8_t userActivity = 0U;
   uint8_t buttonActivity = 0U;
 
-  if ((now - lastLoopTick) < MAIN_LOOP_DELAY_MS) {
+  if ((now - appLastLoopTick) < appLoopIntervalMs) {
     return 0U;
   }
-  lastLoopTick = now;
+  appLastLoopTick = now;
+  appLoopIntervalMs = MAIN_LOOP_DELAY_MS;
 
 #if MAIN_POWER_STANDBY_ENABLED
   if (Board_IsWakePowerPresent() == 0U) {
@@ -401,6 +500,7 @@ static uint8_t App_Tick(void)
       oledAlarmShown = 0U;
     }
   } else if (idlePeripheralsOff != 0U) {
+    appLoopIntervalMs = IDLE_LOOP_DELAY_MS;
     return 1U;
   }
 
@@ -453,6 +553,7 @@ static uint8_t App_Tick(void)
       Board_PowerDownIdleDevices();
       App_SetMsiClock(APP_MSI_IDLE_RANGE, APP_MSI_IDLE_HZ);
       idlePeripheralsOff = 1U;
+      appLoopIntervalMs = IDLE_LOOP_DELAY_MS;
       return 1U;
     }
   }
